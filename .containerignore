@@ -1,0 +1,10 @@
+.git
+.env
+bootable*.img
+bootable*.img.zst
+*.ociarchive
+
+# Nested repos are source references, not image build context.
+arch-bootc-hetzner
+dotfiles
+homelab
