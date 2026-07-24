@@ -65,9 +65,14 @@ sudo ./scripts/install-laptop-existing-root.sh \
 
 The script backs up `/boot`, relocates the FAT ESP to `/boot/efi` so `/boot`
 resolves to the ext4 root filesystem required by bootc, runs
-`bootc install to-existing-root`, and pins the ESP UUID with a
-`systemd.mount-extra` kernel argument. It requires at least 30 GiB free for
-the root-owned container image pull.
+`bootc install to-existing-root --bootloader none`, installs and syncs
+systemd-boot explicitly, and pins the ESP UUID with a
+`systemd.mount-extra` kernel argument. It also rewrites the Linux ESP fstab
+entry from `/boot` to `/boot/efi`; bootc otherwise remounts the FAT ESP over
+`/boot` during deployment. The ESP is mounted with `umask=0077`. The explicit
+sync avoids a `bootupd` dependency, which bootc otherwise requires for
+ostree-based bootloader installation. It requires at least 30 GiB free for the
+root-owned container image pull.
 
 The public image contains no password hash. On the first boot, tty1 prompts for
 a new local password for `bupdlap`; GDM starts only after password setup

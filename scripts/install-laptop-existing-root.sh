@@ -27,6 +27,7 @@ BOOT_MOUNT="/boot"
 ESP_MOUNT="${BOOT_MOUNT}/efi"
 ESP_UUID=""
 ESP_BACKUP=""
+FSTAB_BACKUP=""
 ESP_RELOCATED=0
 
 resolve_image_ref() {
@@ -117,27 +118,57 @@ prepare_boot_layout() {
     boot_fstype="$(findmnt -T "$BOOT_MOUNT" -no FSTYPE)"
     if [ "$boot_fstype" = "ext4" ]; then
         install -d -m 0755 "$ESP_MOUNT"
-        return
+    else
+        [ "$boot_fstype" = "vfat" ] || \
+            die "$BOOT_MOUNT must resolve to the ext4 root or the ESP, found $boot_fstype"
+
+        boot_source="$(findmnt -M "$BOOT_MOUNT" -no SOURCE)"
+        [ "$(readlink -f "$boot_source")" = "$(readlink -f "$ESP_PART")" ] || \
+            die "$BOOT_MOUNT is not mounted from the expected ESP: $ESP_PART"
+
+        echo "## Moving the ESP from $BOOT_MOUNT to $ESP_MOUNT for bootc."
+        umount "$BOOT_MOUNT"
+        install -d -m 0755 "$ESP_MOUNT"
+        mount "$ESP_PART" "$ESP_MOUNT"
+        ESP_RELOCATED=1
+
+        [ "$(findmnt -T "$BOOT_MOUNT" -no FSTYPE)" = "ext4" ] || \
+            die "$BOOT_MOUNT did not resolve to the ext4 root after ESP relocation"
     fi
 
-    [ "$boot_fstype" = "vfat" ] || \
-        die "$BOOT_MOUNT must resolve to the ext4 root or the ESP, found $boot_fstype"
+    update_esp_fstab
+}
 
-    boot_source="$(findmnt -M "$BOOT_MOUNT" -no SOURCE)"
-    [ "$(readlink -f "$boot_source")" = "$(readlink -f "$ESP_PART")" ] || \
-        die "$BOOT_MOUNT is not mounted from the expected ESP: $ESP_PART"
+update_esp_fstab() {
+    local fstab="${TARGET_ROOT}/etc/fstab"
+    local rewritten
 
-    echo "## Moving the ESP from $BOOT_MOUNT to $ESP_MOUNT for bootc."
-    umount "$BOOT_MOUNT"
-    install -d -m 0755 "$ESP_MOUNT"
-    mount "$ESP_PART" "$ESP_MOUNT"
-    ESP_RELOCATED=1
+    [ -f "$fstab" ] || die "fstab not found: $fstab"
+    FSTAB_BACKUP="${fstab}.bootc-install-backup"
+    cp -a "$fstab" "$FSTAB_BACKUP"
 
-    [ "$(findmnt -T "$BOOT_MOUNT" -no FSTYPE)" = "ext4" ] || \
-        die "$BOOT_MOUNT did not resolve to the ext4 root after ESP relocation"
+    if ! rewritten="$(awk -v uuid="$ESP_UUID" '
+        $1 == "UUID=" uuid && ($2 == "/boot" || $2 == "/boot/efi") && $3 == "vfat" {
+            print $1 "\t/boot/efi\t" $3 "\tumask=0077,shortname=winnt\t0\t2"
+            updated = 1
+            next
+        }
+        { print }
+        END { exit updated ? 0 : 1 }
+    ' "$fstab")"; then
+        die "could not update the $ESP_PART entry from /boot to /boot/efi in $fstab"
+    fi
+
+    printf '%s\n' "$rewritten" > "$fstab"
+    echo "## Updated $fstab to mount the ESP at $ESP_MOUNT."
 }
 
 restore_boot_layout() {
+    if [ -n "$FSTAB_BACKUP" ] && [ -f "$FSTAB_BACKUP" ]; then
+        cp -a "$FSTAB_BACKUP" "${TARGET_ROOT}/etc/fstab"
+        rm -f "$FSTAB_BACKUP"
+    fi
+
     [ "$ESP_RELOCATED" -eq 1 ] || return 0
 
     echo "## Restoring the original ESP mount after failed installation."
@@ -155,17 +186,31 @@ restore_boot_layout() {
     ESP_RELOCATED=0
 }
 
+sync_systemd_boot() {
+    local sync_script="${REPO_DIR}/files/laptop/bootc/bootc-sync-esp.sh"
+
+    [ -x "$sync_script" ] || die "ESP sync helper not found: $sync_script"
+    "$sync_script"
+
+    if ! bootctl --esp-path="$ESP_MOUNT" install; then
+        echo "WARNING: bootctl could not create a firmware entry; the EFI fallback loader was synced."
+    fi
+}
+
 main() {
     local resolved_image
+    local update_image
 
     require_root
     [ -n "$IMAGE_REF" ] || die "missing image ref"
     resolved_image="$(resolve_image_ref "$IMAGE_REF")"
+    update_image="${BOOTC_UPDATE_IMAGE_REF:-$resolved_image}"
 
     confirm_laptop
     confirm_partitions
     confirm_free_space
     echo "## Image: ${resolved_image}"
+    echo "## Update source: ${update_image}"
 
     if registry_has_credentials "$IMAGE_REF" "$ARG_USERNAME" "$ARG_PASSWORD"; then
         registry_auth podman-login "$IMAGE_REF" "$ARG_USERNAME" "$ARG_PASSWORD"
@@ -190,11 +235,18 @@ main() {
         -v "${TARGET_ROOT}:/target" \
         "$resolved_image" \
         bootc install to-existing-root \
-        --bootloader systemd \
+        --bootloader none \
+        --target-imgref "$update_image" \
         --karg="systemd.mount-extra=UUID=${ESP_UUID}:${ESP_MOUNT}:vfat:umask=0077,shortname=winnt"; then
         restore_boot_layout
         die "bootc installation failed; the original ESP mount and backup were restored"
     fi
+
+    if [ -n "$FSTAB_BACKUP" ] && [ -f "$FSTAB_BACKUP" ]; then
+        rm -f "$FSTAB_BACKUP"
+    fi
+
+    sync_systemd_boot
 
     if [ -x /usr/bin/bootc-sync-esp ]; then
         echo ""
