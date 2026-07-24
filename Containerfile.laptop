@@ -1,0 +1,342 @@
+ARG BASE_IMAGE=localhost/archlinux-bootc-base:latest
+FROM ${BASE_IMAGE}
+
+ARG USERNAME=bupdlap
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+# Core laptop, desktop, development, and hardware packages. AUR-only packages
+# are handled in a separate stage below to keep the official package set clear.
+RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/pacman \
+    pacman -Syu --noconfirm \
+    acpi \
+    acpica \
+    alacritty \
+    arandr \
+    asciinema \
+    autorandr \
+    baobab \
+    base-devel \
+    bc \
+    bind \
+    blueman \
+    bluez-utils \
+    brightnessctl \
+    btop \
+    cabextract \
+    cloudflared \
+    crane \
+    curl \
+    dconf \
+    dhcpcd \
+    dive \
+    dkms \
+    dmenu \
+    dmidecode \
+    docker \
+    docker-compose \
+    dunst \
+    efibootmgr \
+    epiphany \
+    ethtool \
+    evince \
+    ex-vi-compat \
+    expect \
+    fastfetch \
+    firefox \
+    flashrom \
+    fzf \
+    gdm \
+    ghostty \
+    git \
+    git-crypt \
+    github-cli \
+    gnome-backgrounds \
+    gnome-calculator \
+    gnome-calendar \
+    gnome-characters \
+    gnome-clocks \
+    gnome-color-manager \
+    gnome-connections \
+    gnome-console \
+    gnome-contacts \
+    gnome-control-center \
+    gnome-disk-utility \
+    gnome-font-viewer \
+    gnome-keyring \
+    gnome-logs \
+    gnome-maps \
+    gnome-menus \
+    gnome-music \
+    gnome-remote-desktop \
+    gnome-session \
+    gnome-settings-daemon \
+    gnome-shell \
+    gnome-shell-extensions \
+    gnome-software \
+    gnome-system-monitor \
+    gnome-text-editor \
+    gnome-tour \
+    gnome-tweaks \
+    gnome-user-docs \
+    gnome-user-share \
+    gnome-weather \
+    go \
+    go-task \
+    gpaste \
+    grilo-plugins \
+    gst-plugin-pipewire \
+    gvfs \
+    gvfs-afc \
+    gvfs-dnssd \
+    gvfs-goa \
+    gvfs-gphoto2 \
+    gvfs-mtp \
+    gvfs-nfs \
+    gvfs-onedrive \
+    gvfs-smb \
+    gvfs-wsdd \
+    helm \
+    htop \
+    i3-wm \
+    i3blocks \
+    i3lock \
+    i3status \
+    intel-gpu-tools \
+    intel-media-driver \
+    intel-ucode \
+    iwd \
+    jq \
+    k9s \
+    kitty \
+    knative-client \
+    kubectl \
+    kubie \
+    lazygit \
+    libpulse \
+    libva-intel-driver \
+    linux \
+    linux-firmware \
+    linux-headers \
+    localsearch \
+    loupe \
+    lshw \
+    lxappearance \
+    malcontent \
+    man-db \
+    mosh \
+    nano \
+    nautilus \
+    ncdu \
+    ndiswrapper \
+    neovim \
+    net-tools \
+    network-manager-applet \
+    networkmanager \
+    nodejs \
+    nmap \
+    notification-daemon \
+    noto-fonts \
+    npm \
+    ntfs-3g \
+    numlockx \
+    obs-studio \
+    obsidian \
+    orca \
+    os-prober \
+    pavucontrol \
+    picom \
+    pipewire \
+    pipewire-alsa \
+    pipewire-jack \
+    pipewire-pulse \
+    powertop \
+    proton-vpn-gtk-app \
+    python-openai-whisper \
+    python-pip \
+    qemu-user-static \
+    qemu-user-static-binfmt \
+    ranger \
+    raylib \
+    ripgrep \
+    rofi \
+    rxvt-unicode \
+    rygel \
+    screenkey \
+    shellcheck \
+    simple-scan \
+    skopeo \
+    smartmontools \
+    snapshot \
+    sof-firmware \
+    sshpass \
+    stow \
+    sudo \
+    sushi \
+    tailscale \
+    tcpdump \
+    tecla \
+    terminus-font \
+    thunar \
+    tlp \
+    tlp-rdw \
+    tmux \
+    totem \
+    tree \
+    ttf-dejavu \
+    ttf-dejavu-nerd \
+    ttf-droid \
+    ttf-firacode-nerd \
+    ttf-hack-nerd \
+    ttf-jetbrains-mono-nerd \
+    ttf-liberation \
+    ttf-nerd-fonts-symbols \
+    ttf-nerd-fonts-symbols-mono \
+    ttf-noto-nerd \
+    ttf-roboto \
+    ttf-ubuntu-font-family \
+    unrar \
+    vim \
+    vlc \
+    vulkan-intel \
+    vulkan-radeon \
+    wget \
+    wireless-regdb \
+    wireless_tools \
+    wireplumber \
+    wmctrl \
+    xbindkeys \
+    xdg-desktop-portal-gnome \
+    xdg-user-dirs-gtk \
+    xdg-utils \
+    xdotool \
+    xorg-xinit \
+    xorg-xrandr \
+    xorg-xset \
+    xorg-xrdb \
+    xorg-xsetroot \
+    zsh \
+    && pacman -S --clean --noconfirm
+
+# Keep initramfs aligned with any kernel updated by pacman.
+RUN KDIR=$(find /usr/lib/modules -maxdepth 1 -type d -name '[0-9]*' | sort -V | tail -1) && \
+    dracut --force "$KDIR/initramfs.img"
+
+RUN groupadd --gid "${USER_GID}" "${USERNAME}" && \
+    useradd --uid "${USER_UID}" --gid "${USER_GID}" -m -G wheel,docker,video,input,audio,network,storage,optical -s /bin/zsh "${USERNAME}" && \
+    printf "%%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n" > /etc/sudoers.d/wheel && \
+    chmod 0440 /etc/sudoers.d/wheel
+
+# Laptop hardware and desktop defaults.
+COPY files/laptop/modprobe.d/mt7902.conf /etc/modprobe.d/mt7902.conf
+COPY files/laptop/modprobe.d/blacklist.conf /etc/modprobe.d/blacklist.conf
+COPY files/laptop/NetworkManager/conf.d/20-connectivity.conf /etc/NetworkManager/conf.d/20-connectivity.conf
+COPY files/laptop/NetworkManager/conf.d/wifi-powersave-off.conf /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+COPY files/laptop/gdm/custom.conf /etc/gdm/custom.conf
+COPY files/laptop/dconf/00-laptop-defaults /etc/dconf/db/local.d/00-laptop-defaults
+RUN dconf update
+
+# A public image cannot contain a host password hash. Block GDM on first boot
+# until the local user sets a password directly on tty1.
+COPY files/laptop/firstboot/initialize-user-password.sh /usr/libexec/archlinux-laptop-initialize-password
+COPY files/laptop/systemd/archlinux-laptop-firstboot-password.service /usr/lib/systemd/system/archlinux-laptop-firstboot-password.service
+RUN chmod 0755 /usr/libexec/archlinux-laptop-initialize-password
+
+# ESP synchronization for Arch bootc on this laptop. It supports both /boot and
+# /boot/efi ESP mount layouts.
+COPY files/laptop/bootc/bootc-sync-esp.sh /usr/bin/bootc-sync-esp
+COPY files/laptop/systemd/bootc-sync-esp.service /usr/lib/systemd/system/bootc-sync-esp.service
+COPY files/laptop/systemd/bootc-sync-esp-finalize.service /usr/lib/systemd/system/bootc-sync-esp-finalize.service
+RUN chmod +x /usr/bin/bootc-sync-esp
+
+# Preserve the current MT7902 fallback artifacts for emergency repair without
+# making the primary boot path depend on experimental DKMS.
+COPY files/laptop/dkms/mt7902-fallback.md /usr/share/archlinux-laptop/mt7902-fallback.md
+
+# AUR helper plus selected curated AUR packages from the current laptop.
+RUN --mount=type=tmpfs,dst=/tmp \
+    git clone https://aur.archlinux.org/yay-bin.git /tmp/yay-bin && \
+    chown -R "${USERNAME}:${USERNAME}" /tmp/yay-bin && \
+    runuser -u "${USERNAME}" -- bash -lc "cd /tmp/yay-bin && makepkg --noconfirm" && \
+    pacman -U --noconfirm /tmp/yay-bin/*.pkg.tar.zst
+
+RUN --mount=type=tmpfs,dst=/tmp \
+    runuser -u "${USERNAME}" -- yay -S --noconfirm --needed \
+    arc-gtk-theme \
+    asdf-vm \
+    brave-bin \
+    bun-bin \
+    displaylink \
+    evdi-dkms \
+    freelens-bin \
+    gitlab-ci-local \
+    google-chrome \
+    harbor-cli \
+    headlamp-bin \
+    ifrextractor-rs-bin \
+    marp-cli \
+    materialgram-bin \
+    nitrogen \
+    ookla-speedtest-bin \
+    oras-git \
+    pa-applet-git \
+    uefitool-bin \
+    xremap-x11-bin \
+    zapzap && \
+    rm -rf "/var/home/${USERNAME}/.cache" "/var/home/${USERNAME}/go"
+
+# Developer CLIs installed outside /var so they survive bootc upgrades.
+RUN npm install -g --prefix /usr @openai/codex && \
+    curl -fsSL https://claude.ai/install.sh | bash && \
+    install -Dm0755 /root/.local/bin/claude /usr/bin/claude && \
+    npm cache clean --force && \
+    rm -rf /root/.cache /root/.local /root/.npm /root/.bun /var/roothome/.cache /var/roothome/.local /var/roothome/.npm /var/roothome/.bun
+
+RUN --mount=type=tmpfs,dst=/tmp \
+    K3D_VERSION=$(curl --retry 5 --retry-all-errors -sfL https://api.github.com/repos/k3d-io/k3d/releases/latest | jq -r .tag_name) && \
+    curl --retry 5 --retry-all-errors -sfL -o /usr/bin/k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64" && \
+    KIND_VERSION=$(curl --retry 5 --retry-all-errors -sfL https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | jq -r .tag_name) && \
+    curl --retry 5 --retry-all-errors -sfL -o /usr/bin/kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64" && \
+    chmod +x /usr/bin/k3d /usr/bin/kind
+
+# User dotfiles. The local repo remains the source of truth, but the image
+# fetches public dotfiles so the container build is reproducible from registry.
+RUN git clone https://github.com/bupd/dotfiles.git "/var/home/${USERNAME}/dotfiles" && \
+    stow -d "/var/home/${USERNAME}/dotfiles" -t "/var/home/${USERNAME}" . && \
+    chown -R "${USERNAME}:${USERNAME}" "/var/home/${USERNAME}"
+
+# Neutral git behavior; identity and signing configuration belong in user state.
+RUN printf '[core]\n\teditor = nvim\n[pull]\n\trebase = true\n[merge]\n\ttool = nvimdiff\n[diff]\n\ttool = nvimdiff\n\tcolorMoved = default\n[rerere]\n\tenabled = true\n\tautoUpdate = true\n' > "/var/home/${USERNAME}/.gitconfig" && \
+    chown "${USERNAME}:${USERNAME}" "/var/home/${USERNAME}/.gitconfig"
+
+# Enable laptop services. NetworkManager/iwd remain the network path; no
+# Hetzner networkd, serial console, qemu guest agent, k3s, or UFW lockdown.
+RUN systemctl enable \
+    NetworkManager \
+    NetworkManager-wait-online \
+    NetworkManager-dispatcher \
+    iwd \
+    bluetooth \
+    docker \
+    displaylink \
+    gdm \
+    sshd \
+    tailscaled \
+    tlp \
+    systemd-timesyncd \
+    fstrim.timer \
+    archlinux-laptop-firstboot-password \
+    bootc-sync-esp \
+    bootc-sync-esp-finalize
+
+RUN ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime && \
+    echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
+    locale-gen && \
+    echo "LANG=en_US.UTF-8" > /etc/locale.conf && \
+    echo "archlinux-vivobook" > /etc/hostname
+
+LABEL containers.bootc=1
+LABEL org.opencontainers.image.title="Arch Linux bootc laptop image"
+LABEL org.opencontainers.image.description="Arch Linux bootc image for ASUS Vivobook X1404ZA with GNOME, i3, NetworkManager, and MT7902 Wi-Fi support"
+LABEL org.opencontainers.image.source="https://github.com/oci-native/archlinux"
+RUN bootc container lint
