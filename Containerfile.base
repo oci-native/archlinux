@@ -42,7 +42,8 @@ RUN --mount=type=cache,dst=/root/.cargo/registry --mount=type=cache,dst=/root/.c
     printf 'reproducible=yes\nhostonly=no\ncompress=zstd\nadd_dracutmodules+=" ostree bootc "' > /usr/lib/dracut/dracut.conf.d/30-archlinux-bootc-container-build.conf && \
     dracut --force "$(find /usr/lib/modules -maxdepth 1 -type d -name '[0-9]*' | sort -V | tail -1)/initramfs.img" && \
     pacman -Rns --noconfirm make rust go-md2man && \
-    pacman -S --clean --noconfirm
+    pacman -S --clean --noconfirm && \
+    rm -rf /tmp/bootc /tmp/node-compile-cache
 
 RUN sed -i 's|^HOME=.*|HOME=/var/home|' /etc/default/useradd && \
     rm -rf /boot /home /root /usr/local /srv /mnt /var /usr/lib/sysimage/log /usr/lib/sysimage/cache/pacman/pkg && \

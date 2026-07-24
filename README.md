@@ -53,19 +53,21 @@ Run the preflight first:
 The install script is intentionally narrow. It expects this partition layout:
 
 - Windows/OEM: `/dev/nvme0n1p1` through `/dev/nvme0n1p5`
-- Linux ESP: `/dev/nvme0n1p6`
+- Linux ESP: `/dev/nvme0n1p6` (relocated from `/boot` to `/boot/efi` by the installer)
 - Linux root: `/dev/nvme0n1p7`
 
 Then convert the existing Arch root:
 
 ```sh
 sudo ./scripts/install-laptop-existing-root.sh \
-  ghcr.io/oci-native/archlinux-laptop@sha256:dcca61f60d27630fd7730dc08d5c68f55d66682b9fd66fde0aff686f051a00e1
+  ghcr.io/oci-native/archlinux-laptop@sha256:993bff85124206eca633b05da640a7426efc30db903e435f374fd9951f3d484b
 ```
 
-The script backs up `/boot`, runs `bootc install to-existing-root`, and syncs
-the systemd-boot loader payload to the ESP. It requires at least 30 GiB free
-for the root-owned container image pull.
+The script backs up `/boot`, relocates the FAT ESP to `/boot/efi` so `/boot`
+resolves to the ext4 root filesystem required by bootc, runs
+`bootc install to-existing-root`, and pins the ESP UUID with a
+`systemd.mount-extra` kernel argument. It requires at least 30 GiB free for
+the root-owned container image pull.
 
 The public image contains no password hash. On the first boot, tty1 prompts for
 a new local password for `bupdlap`; GDM starts only after password setup

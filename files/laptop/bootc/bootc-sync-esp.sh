@@ -12,6 +12,11 @@ find_esp() {
         return 0
     fi
 
+    if mountpoint -q /efi; then
+        printf '%s\n' /efi
+        return 0
+    fi
+
     if mountpoint -q /boot; then
         if [ -d /boot/EFI ] || [ -d /boot/loader ] || findmnt -no FSTYPE /boot | grep -q '^vfat$'; then
             printf '%s\n' /boot
@@ -19,18 +24,8 @@ find_esp() {
         fi
     fi
 
-    mkdir -p /boot/efi
-    local efi_part=""
-    efi_part=$(blkid -t PARTLABEL="EFI System" -o device 2>/dev/null | head -1 || true)
-    if [ -z "$efi_part" ]; then
-        efi_part=$(blkid -t TYPE="vfat" -o device 2>/dev/null | head -1 || true)
-    fi
-    if [ -z "$efi_part" ]; then
-        log "no EFI partition found"
-        return 1
-    fi
-    mount "$efi_part" /boot/efi
-    printf '%s\n' /boot/efi
+    log "no explicitly mounted ESP found"
+    return 1
 }
 
 find_loader_dir() {

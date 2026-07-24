@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${REPO_DIR}/.env"
 
@@ -23,6 +23,11 @@ ROOT_PART="${BOOTC_ROOT_PART:-/dev/nvme0n1p7}"
 ESP_PART="${BOOTC_ESP_PART:-/dev/nvme0n1p6}"
 TARGET_ROOT="${BOOTC_TARGET_ROOT:-/}"
 MIN_FREE_GIB="${BOOTC_MIN_FREE_GIB:-30}"
+BOOT_MOUNT="/boot"
+ESP_MOUNT="${BOOT_MOUNT}/efi"
+ESP_UUID=""
+ESP_BACKUP=""
+ESP_RELOCATED=0
 
 resolve_image_ref() {
     local image="$1"
@@ -69,6 +74,8 @@ confirm_partitions() {
 
     [ "$root_fstype" = "ext4" ] || die "$ROOT_PART must be ext4, found ${root_fstype:-unknown}"
     [ "$esp_fstype" = "vfat" ] || die "$ESP_PART must be vfat, found ${esp_fstype:-unknown}"
+    ESP_UUID="$(blkid -o value -s UUID "$ESP_PART" 2>/dev/null || true)"
+    [ -n "$ESP_UUID" ] || die "could not determine ESP UUID for $ESP_PART"
 
     echo "## Partition layout:"
     lsblk -f /dev/nvme0n1
@@ -98,8 +105,54 @@ backup_esp() {
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 
     mkdir -p "$backup_dir"
-    tar -C /boot -czf "$backup_dir/esp-${stamp}.tar.gz" .
-    echo "## ESP backup: $backup_dir/esp-${stamp}.tar.gz"
+    ESP_BACKUP="$backup_dir/esp-${stamp}.tar.gz"
+    tar -C "$BOOT_MOUNT" -czf "$ESP_BACKUP" .
+    echo "## ESP backup: $ESP_BACKUP"
+}
+
+prepare_boot_layout() {
+    local boot_fstype
+    local boot_source
+
+    boot_fstype="$(findmnt -T "$BOOT_MOUNT" -no FSTYPE)"
+    if [ "$boot_fstype" = "ext4" ]; then
+        install -d -m 0755 "$ESP_MOUNT"
+        return
+    fi
+
+    [ "$boot_fstype" = "vfat" ] || \
+        die "$BOOT_MOUNT must resolve to the ext4 root or the ESP, found $boot_fstype"
+
+    boot_source="$(findmnt -M "$BOOT_MOUNT" -no SOURCE)"
+    [ "$(readlink -f "$boot_source")" = "$(readlink -f "$ESP_PART")" ] || \
+        die "$BOOT_MOUNT is not mounted from the expected ESP: $ESP_PART"
+
+    echo "## Moving the ESP from $BOOT_MOUNT to $ESP_MOUNT for bootc."
+    umount "$BOOT_MOUNT"
+    install -d -m 0755 "$ESP_MOUNT"
+    mount "$ESP_PART" "$ESP_MOUNT"
+    ESP_RELOCATED=1
+
+    [ "$(findmnt -T "$BOOT_MOUNT" -no FSTYPE)" = "ext4" ] || \
+        die "$BOOT_MOUNT did not resolve to the ext4 root after ESP relocation"
+}
+
+restore_boot_layout() {
+    [ "$ESP_RELOCATED" -eq 1 ] || return 0
+
+    echo "## Restoring the original ESP mount after failed installation."
+    if ! mountpoint -q "$ESP_MOUNT"; then
+        mount "$ESP_PART" "$ESP_MOUNT"
+    fi
+
+    if [ -n "$ESP_BACKUP" ] && [ -f "$ESP_BACKUP" ]; then
+        find "$ESP_MOUNT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+        tar -C "$ESP_MOUNT" -xzf "$ESP_BACKUP"
+    fi
+
+    umount "$ESP_MOUNT"
+    mount "$ESP_PART" "$BOOT_MOUNT"
+    ESP_RELOCATED=0
 }
 
 main() {
@@ -122,12 +175,14 @@ main() {
     echo "## This will convert the existing Arch root at ${ROOT_PART} to bootc."
     echo "## Windows/OEM partitions p1-p5 are expected to remain untouched."
     echo "## /boot and boot loader content will be reinitialized after an ESP backup."
+    echo "## The ESP will be mounted at ${ESP_MOUNT}; ${BOOT_MOUNT} must remain ext4 for bootc."
     read -r -p "Type 'convert ${ROOT_PART}' to continue: " confirm
     [ "$confirm" = "convert ${ROOT_PART}" ] || die "aborted"
 
     backup_esp
+    prepare_boot_layout
 
-    podman run \
+    if ! podman run \
         --rm --privileged --pid=host --ipc=host --network=host \
         --security-opt label=type:unconfined_t \
         -v /dev:/dev \
@@ -135,7 +190,11 @@ main() {
         -v "${TARGET_ROOT}:/target" \
         "$resolved_image" \
         bootc install to-existing-root \
-        --bootloader systemd
+        --bootloader systemd \
+        --karg="systemd.mount-extra=UUID=${ESP_UUID}:${ESP_MOUNT}:vfat:umask=0077,shortname=winnt"; then
+        restore_boot_layout
+        die "bootc installation failed; the original ESP mount and backup were restored"
+    fi
 
     if [ -x /usr/bin/bootc-sync-esp ]; then
         echo ""
@@ -151,4 +210,6 @@ main() {
     echo "## First boot will prompt on tty1 for the local bupdlap password before GDM starts."
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi
