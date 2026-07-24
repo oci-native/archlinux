@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync bootc loader files to the EFI System Partition
+After=local-fs.target
+ConditionPathExists=/boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bootc-sync-esp
+
+[Install]
+WantedBy=multi-user.target

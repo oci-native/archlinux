@@ -1,0 +1,14 @@
+[Unit]
+Description=Sync bootc loader files to ESP after staged deployment finalization
+After=ostree-finalize-staged.service
+RequiresMountsFor=/boot
+DefaultDependencies=no
+Before=shutdown.target reboot.target halt.target
+ConditionPathExists=/boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bootc-sync-esp
+
+[Install]
+WantedBy=shutdown.target reboot.target halt.target
