@@ -11,7 +11,7 @@ The base layout follows
 upstream bootc builder stage, pacman state under `/usr/lib/sysimage`, a generic
 dracut image, bootc's standard persistent-root layout, and composefs enabled in
 `/usr/lib/ostree/prepare-root.conf`. The desktop layer adds the workstation
-package set declared in `Containerfile.laptop`.
+package set declared in `Containerfile.pc`.
 
 The image tracks the current official Arch repositories on every build:
 
