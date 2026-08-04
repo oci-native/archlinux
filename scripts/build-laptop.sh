@@ -88,7 +88,7 @@ echo ""
 echo "## Building laptop image"
 "${PODMAN[@]}" build --network=host \
     --build-arg "BASE_IMAGE=${BASE_IMAGE_TAG}" \
-    -f "$REPO_DIR/Containerfile.laptop" \
+    -f "$REPO_DIR/Containerfile.pc" \
     -t "$FINAL_IMAGE_TAG" \
     "$REPO_DIR"
 
