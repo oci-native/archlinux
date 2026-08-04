@@ -1,62 +1,105 @@
-FROM docker.io/archlinux/archlinux:latest
+FROM scratch AS context
 
-ARG BOOTC_VERSION=v1.14.1
+COPY shared/ /shared/
 
-# Move pacman mutable state under /usr/lib/sysimage so pacman still works when
-# the deployment root is image-managed by bootc/OSTree.
-RUN grep "= */var" /etc/pacman.conf | sed "/= *\/var/s/.*=// ; s/ //" | xargs -n1 sh -c 'mkdir -p "/usr/lib/sysimage/$(dirname $(echo $1 | sed "s@/var/@@"))" && mv -v "$1" "/usr/lib/sysimage/$(echo "$1" | sed "s@/var/@@")"' '' && \
-    sed -i -e "/= *\/var/ s/^#//" -e "s@= */var@= /usr/lib/sysimage@g" -e "/DownloadUser/d" /etc/pacman.conf
+FROM docker.io/archlinux/archlinux:latest AS bootc-builder
 
-# Arch's container image omits language/help payloads through NoExtract rules.
-RUN sed -i 's/^[[:space:]]*NoExtract/#&/' /etc/pacman.conf
-RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/pacman \
-    pacman -Sy glibc --noconfirm
+ARG BOOTC_VERSION=v1.16.6
 
-RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/pacman \
-    pacman -Syu --noconfirm \
-    base \
-    cpio \
-    dbus \
-    dbus-glib \
-    dosfstools \
-    dracut \
-    e2fsprogs \
-    git \
-    glib2 \
-    linux \
-    linux-firmware \
-    ostree \
-    podman \
-    shadow \
-    skopeo \
-    systemd \
-    xfsprogs \
-    && pacman -S --clean --noconfirm
+# Arch does not yet package bootc. Build one pinned upstream release in an
+# isolated stage so no compiler, source tree, or build-only account reaches
+# the operating-system image.
+RUN sed -i '/^[[:space:]]*DownloadUser[[:space:]]/d' /etc/pacman.conf
 
-# Build bootc from source until Arch has a suitable official bootc package.
-RUN --mount=type=cache,dst=/root/.cargo/registry --mount=type=cache,dst=/root/.cargo/git \
-    pacman -S --noconfirm make rust go-md2man && \
-    git clone --branch "${BOOTC_VERSION}" --depth 1 "https://github.com/bootc-dev/bootc.git" /tmp/bootc && \
-    make -C /tmp/bootc bin install-all && \
-    printf "systemdsystemconfdir=/etc/systemd/system\nsystemdsystemunitdir=/usr/lib/systemd/system\n" > /usr/lib/dracut/dracut.conf.d/30-archlinux-bootc-module.conf && \
-    printf 'reproducible=yes\nhostonly=no\ncompress=zstd\nadd_dracutmodules+=" ostree bootc "' > /usr/lib/dracut/dracut.conf.d/30-archlinux-bootc-container-build.conf && \
-    dracut --force "$(find /usr/lib/modules -maxdepth 1 -type d -name '[0-9]*' | sort -V | tail -1)/initramfs.img" && \
-    pacman -Rns --noconfirm make rust go-md2man && \
-    pacman -S --clean --noconfirm && \
-    rm -rf /tmp/bootc /tmp/node-compile-cache
+RUN --mount=type=cache,dst=/root/.cargo/registry \
+    --mount=type=cache,dst=/root/.cargo/git \
+    pacman -Syu --needed --noconfirm \
+        git \
+        glib2 \
+        go-md2man \
+        make \
+        ostree \
+        pkgconf \
+        rust
 
-RUN sed -i 's|^HOME=.*|HOME=/var/home|' /etc/default/useradd && \
-    rm -rf /boot /home /root /usr/local /srv /mnt /var /usr/lib/sysimage/log /usr/lib/sysimage/cache/pacman/pkg && \
-    mkdir -p /sysroot /boot /usr/lib/ostree /var /usr/lib/bootc/install && \
-    ln -sT sysroot/ostree /ostree && \
-    ln -sT var/roothome /root && \
-    ln -sT var/srv /srv && \
-    ln -sT var/mnt /mnt && \
-    ln -sT var/home /home && \
-    ln -sT ../var/usrlocal /usr/local && \
-    printf "d /var/home 0755 root root -\nd /var/srv 0755 root root -\nd /var/mnt 0755 root root -\nd /var/usrlocal 0755 root root -\nd /var/roothome 0700 root root -\nd /run/media 0755 root root -\n" > /usr/lib/tmpfiles.d/bootc-base-dirs.conf && \
-    printf '[composefs]\nenabled = yes\n[sysroot]\nreadonly = true\n' > /usr/lib/ostree/prepare-root.conf && \
-    printf '[install.filesystem.root]\ntype = "ext4"\n' > /usr/lib/bootc/install/00-archlinux.toml
+WORKDIR /tmp/bootc
+RUN git clone --branch "${BOOTC_VERSION}" --depth 1 \
+        https://github.com/bootc-dev/bootc.git . && \
+    make bin install-all DESTDIR=/output
+
+# install-all also emits bootc's development integration-test executable and
+# keeps full Rust debug sections. Neither belongs in the deployed OS image.
+RUN rm -f /output/usr/bin/bootc-integration-tests && \
+    strip --strip-unneeded \
+        /output/usr/bin/bootc \
+        /output/usr/bin/system-reinstall-bootc
+
+FROM docker.io/archlinux/archlinux:latest AS system
+
+COPY --from=bootc-builder /output /
+
+# Keep pacman's mutable database and cache outside the image-managed /usr
+# deployment. This follows bootcrew/mono's Arch base design and keeps pacman
+# usable inside an explicit `bootc usr-overlay`.
+RUN grep "= */var" /etc/pacman.conf | \
+        sed "/= *\/var/s/.*=// ; s/ //" | \
+        xargs -n1 sh -c \
+            'mkdir -p "/usr/lib/sysimage/$(dirname "$(printf %s "$1" | sed "s@/var/@@")")"; mv -v "$1" "/usr/lib/sysimage/$(printf %s "$1" | sed "s@/var/@@")"' '' && \
+    sed -i \
+        -e "/= *\/var/ s/^#//" \
+        -e "s@= */var@= /usr/lib/sysimage@g" \
+        -e "/DownloadUser/d" \
+        /etc/pacman.conf
+
+RUN --mount=type=tmpfs,dst=/tmp \
+    --mount=type=cache,dst=/usr/lib/sysimage/cache/pacman \
+    pacman -Syu --needed --noconfirm \
+        base \
+        base-devel \
+        btrfs-progs \
+        bubblewrap \
+        networkmanager \
+        cargo \
+        go-md2man \
+        gcc-libs \
+        glib2 \
+        glibc \
+        openssl \
+        ostree \
+        zlib \
+        zstd \
+        cargo \
+        cpio \
+        cryptsetup \
+        dbus \
+        dosfstools \
+        dracut \
+        e2fsprogs \
+        glib2 \
+        linux \
+        ostree \
+        shadow \
+        skopeo \
+        podman \
+        buildah \
+        systemd \
+        tpm2-tools \
+        tpm2-tss && \
+    pacman -Scc --noconfirm
+
+RUN chmod 4755 /usr/bin/newuidmap && \
+    chmod 4755 /usr/bin/newgidmap
+
+RUN --mount=type=bind,from=context,source=/shared,target=/ctx \
+    bash /ctx/initramfs.sh
+
+RUN --mount=type=bind,from=context,source=/shared,target=/ctx \
+    sed -i 's|^HOME=.*|HOME=/var/home|' /etc/default/useradd && \
+    printf 'uninitialized\n' > /etc/machine-id && \
+    systemctl mask systemd-firstboot.service && \
+    bash /ctx/bootc-rootfs.sh
 
 LABEL containers.bootc=1
-RUN bootc container lint
+LABEL org.opencontainers.image.source="https://github.com/oci-native/archlinux"
+
+RUN bootc container lint --fatal-warnings
