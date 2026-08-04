@@ -1,0 +1,294 @@
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  BOOTC_VERSION: '{{.BOOTC_VERSION | default "v1.16.6"}}'
+  IMAGE_REPOSITORY: '{{.IMAGE_REPOSITORY | default .BOOTC_PC_IMAGE_REF | default "ghcr.io/oci-native/archlinux"}}'
+  BASE_IMAGE_TAG: 'localhost/archlinux-bootc-base:latest'
+  PC_FLAT_IMAGE_TAG: 'localhost/archlinux-pc:flat'
+  PC_IMAGE_TAG: 'localhost/archlinux-pc:latest'
+  CHUNKAH_IMAGE: 'quay.io/coreos/chunkah@sha256:ff8b8b466a942ec6000445d4001fc661e2fc5a952ad9ee29b4de9ab09d1d1708'
+  CHUNKAH_MAX_LAYERS: '{{.CHUNKAH_MAX_LAYERS | default "96"}}'
+  DISK_IMAGE: '{{.DISK_IMAGE | default "bootable-pc.img"}}'
+  DISK_SIZE: '{{.DISK_SIZE | default .BOOTC_DISK_SIZE | default "32G"}}'
+  SWITCH_USER: '{{.SWITCH_USER | default .BOOTC_USER | default "bupd"}}'
+  ROOT_MAPPER: '{{.ROOT_MAPPER | default "/dev/mapper/root"}}'
+  MIN_FREE_GIB: '{{.MIN_FREE_GIB | default "15"}}'
+
+tasks:
+  default:
+    desc: Build, rechunk, and validate the PC bootc image
+    cmds:
+      - task: build
+
+  build:
+    desc: Build, rechunk, and validate the PC bootc image
+    cmds:
+      - task: build-flat
+      - task: rechunk
+      - task: validate
+
+  build-flat:
+    desc: Build the base image and the flat PC OCI image
+    cmds:
+      - >-
+        podman build --pull=always --network=host
+        --build-arg BOOTC_VERSION={{.BOOTC_VERSION}}
+        -f Containerfile.base
+        -t {{.BASE_IMAGE_TAG}}
+        .
+      - >-
+        podman build --network=host
+        --build-arg BASE_IMAGE={{.BASE_IMAGE_TAG}}
+        -f Containerfile.pc
+        -t {{.PC_FLAT_IMAGE_TAG}}
+        .
+
+  rechunk:
+    desc: Split the flat PC image into up to 96 content-based OCI layers
+    preconditions:
+      - sh: podman image exists {{.PC_FLAT_IMAGE_TAG}}
+        msg: Run `task build-flat` before rechunking.
+    cmds:
+      - >-
+        CHUNKAH_CONFIG_STR="$(podman inspect {{.PC_FLAT_IMAGE_TAG}})"
+        podman run --rm
+        --mount=type=image,src={{.PC_FLAT_IMAGE_TAG}},dst=/chunkah
+        -e CHUNKAH_CONFIG_STR
+        {{.CHUNKAH_IMAGE}}
+        build --max-layers {{.CHUNKAH_MAX_LAYERS}} -t {{.PC_IMAGE_TAG}}
+        | podman load
+
+  validate:
+    desc: Validate the bootc, composefs, and initramfs boot path
+    cmds:
+      - >-
+        test "$(podman image inspect --format '{{"{{"}} index .Config.Labels "containers.bootc" {{"}}"}}' {{.PC_IMAGE_TAG}})" = "1"
+      - |
+        podman run --rm {{.PC_IMAGE_TAG}} bash -euo pipefail -c '
+          bootc container lint --fatal-warnings
+          grep -Eq "^[[:space:]]*enabled[[:space:]]*=[[:space:]]*yes$" /usr/lib/ostree/prepare-root.conf
+          test -x /usr/lib/bootc/initramfs-setup
+          test -f /usr/lib/systemd/system/bootc-root-setup.service
+
+          kernel_dir="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          initrd="${kernel_dir}/initramfs.img"
+          test -s "${kernel_dir}/vmlinuz"
+          test -s "$initrd"
+
+          lsinitrd -m "$initrd" > /tmp/initrd-modules.txt
+          lsinitrd "$initrd" > /tmp/initrd-contents.txt
+          grep -Eq "^[[:space:]]*bootc[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -Eq "^[[:space:]]*crypt[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -Eq "^[[:space:]]*btrfs[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -Eq "^[[:space:]]*tpm2-tss[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -q "usr/lib/bootc/initramfs-setup" /tmp/initrd-contents.txt
+          grep -q "bootc-root-setup.service" /tmp/initrd-contents.txt
+          grep -q "usr/bin/systemd-cryptsetup" /tmp/initrd-contents.txt
+          grep -q "usr/bin/tpm2" /tmp/initrd-contents.txt
+          grep -q "libtss2-esys.so" /tmp/initrd-contents.txt
+          grep -q "cryptsetup/libcryptsetup-token-systemd-tpm2.so" /tmp/initrd-contents.txt
+          grep -q "dm-crypt.ko" /tmp/initrd-contents.txt
+        '
+      - podman images {{.PC_IMAGE_TAG}}
+
+  push:
+    desc: Build, rechunk, validate, and push a zstd:chunked PC image to GHCR
+    cmds:
+      - task: build
+      - task: registry-login
+      - podman tag {{.PC_IMAGE_TAG}} {{.IMAGE_REPOSITORY}}:latest
+      - >-
+        podman push --format oci --compression-format zstd:chunked
+        --force-compression {{.IMAGE_REPOSITORY}}:latest
+
+  registry-login:
+    internal: true
+    vars:
+      PODMAN: '{{.PODMAN | default "podman"}}'
+    cmds:
+      - |
+        set -euo pipefail
+        image_ref="{{.IMAGE_REPOSITORY}}"
+        first_part="${image_ref%%/*}"
+        if [ "$first_part" = "$image_ref" ]; then
+          host=docker.io
+        elif [[ "$first_part" == *.* || "$first_part" == *:* || "$first_part" = localhost ]]; then
+          host="$first_part"
+        else
+          host=docker.io
+        fi
+
+        if [ "$host" = ttl.sh ]; then
+          exit 0
+        fi
+
+        case "$host" in
+          ghcr.io)
+            username="${GHCR_USERNAME:-}"
+            password="${GHCR_TOKEN:-}"
+            hint='Set GHCR_USERNAME and GHCR_TOKEN.'
+            ;;
+          docker.io | index.docker.io | registry-1.docker.io)
+            username="${DOCKERHUB_USERNAME:-}"
+            password="${DOCKERHUB_TOKEN:-}"
+            hint='Set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN.'
+            ;;
+          *)
+            username="${BOOTC_USERNAME:-}"
+            password="${BOOTC_PASSWORD:-}"
+            hint='Set BOOTC_USERNAME and BOOTC_PASSWORD.'
+            ;;
+        esac
+
+        if [ -z "$username" ] || [ -z "$password" ]; then
+          echo "ERROR: missing credentials for ${image_ref} (${host}). ${hint}" >&2
+          exit 1
+        fi
+
+        printf '%s\n' "$password" | {{.PODMAN}} login "$host" -u "$username" --password-stdin
+
+  disk:
+    desc: Create a bootable UEFI disk image (requires sudo)
+    cmds:
+      - sudo -v
+      - task: registry-login
+        vars: { PODMAN: 'sudo podman' }
+      - test -e {{.DISK_IMAGE}} || fallocate -l {{.DISK_SIZE}} {{.DISK_IMAGE}}
+      - >-
+        sudo podman run --rm --privileged --pid=host --ipc=host --network=host
+        --security-opt label=type:unconfined_t
+        -v /var/lib/containers:/var/lib/containers
+        -v /etc/containers:/etc/containers
+        -v /dev:/dev
+        -v "$(pwd):/data"
+        {{.IMAGE_REPOSITORY}}:latest
+        bootc install to-disk --composefs-backend
+        --via-loopback /data/{{.DISK_IMAGE}}
+        --filesystem ext4 --wipe --bootloader systemd
+      - ls -lh {{.DISK_IMAGE}}
+
+  switch-preflight:
+    desc: Check whether this Bluefin host can safely stage the Arch deployment (requires sudo)
+    preconditions:
+      - sh: test "$(id -u)" -eq 0
+        msg: Run `sudo task switch-preflight`.
+    cmds:
+      - |
+        set -euo pipefail
+        fail=0
+
+        check() {
+          local label="$1"
+          shift
+          if "$@"; then
+            echo "ok - $label"
+          else
+            echo "not ok - $label"
+            fail=1
+          fi
+        }
+
+        root_is_btrfs() {
+          [ "$(findmnt -T /sysroot -no FSTYPE)" = btrfs ]
+        }
+
+        root_uses_expected_mapper() {
+          [ "$(readlink -f "$(findmnt -T /sysroot -no SOURCE)")" = "$(readlink -f "{{.ROOT_MAPPER}}")" ]
+        }
+
+        luks_cmdline_present() {
+          grep -Eq '(^| )rd\.luks\.name=[^ ]+=root( |$)' /proc/cmdline
+        }
+
+        composefs_cmdline_present() {
+          grep -Eq '(^| )composefs=[0-9a-f]{128}( |$)' /proc/cmdline
+        }
+
+        secure_boot_disabled() {
+          mokutil --sb-state 2>/dev/null | grep -qi disabled
+        }
+
+        nvidia_target_present() {
+          lspci -n | grep -qi 10de:2544
+        }
+
+        enough_free_space() {
+          [[ "{{.MIN_FREE_GIB}}" =~ ^[0-9]+$ ]] || return 1
+          available_bytes="$(df --output=avail -B1 /sysroot | tail -1 | tr -d ' ')"
+          required_bytes=$(({{.MIN_FREE_GIB}} * 1024 * 1024 * 1024))
+          [ "$available_bytes" -ge "$required_bytes" ]
+        }
+
+        check 'running as root' test "$(id -u)" -eq 0
+        check 'booted through UEFI' test -d /sys/firmware/efi
+        check 'systemd-boot is the current boot loader' sh -c "bootctl status 2>/dev/null | grep -q 'Product: systemd-boot'"
+        check 'Secure Boot is disabled for the unsigned Arch boot payload' secure_boot_disabled
+        check 'composefs deployment is active' composefs_cmdline_present
+        check 'LUKS root kernel argument is present' luks_cmdline_present
+        check '{{.ROOT_MAPPER}} exists' test -b '{{.ROOT_MAPPER}}'
+        check '/sysroot uses {{.ROOT_MAPPER}}' root_uses_expected_mapper
+        check 'unlocked root filesystem is Btrfs' root_is_btrfs
+        check 'LUKS mapping root is active' cryptsetup status root
+        check 'at least {{.MIN_FREE_GIB}} GiB is free' enough_free_space
+        check 'persistent home exists for {{.SWITCH_USER}}' test -d '/var/home/{{.SWITCH_USER}}'
+        check 'target RTX 3060 is present' nvidia_target_present
+        check 'bootc is installed' test -x /usr/bin/bootc
+        check 'no SELinux policy is enforcing' sh -c 'command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = Disabled ]'
+
+        echo
+        echo 'Disk/filesystem labels (read-only):'
+        lsblk -o NAME,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS
+        echo
+        echo 'Current bootc state (read-only):'
+        bootc status
+
+        if [ "$fail" -ne 0 ]; then
+          echo 'Preflight failed. Do not stage or reboot into the Arch image.' >&2
+          exit 1
+        fi
+
+        echo 'Preflight passed. No partitions, labels, encryption metadata, or boot entries were changed.'
+
+  switch:
+    desc: Stage the Arch bootc deployment without repartitioning or rebooting (requires sudo)
+    preconditions:
+      - sh: test "$(id -u)" -eq 0
+        msg: Run `sudo task switch`.
+    cmds:
+      - task: switch-preflight
+      - |
+        set -euo pipefail
+        image_ref="{{.IMAGE_REPOSITORY}}:latest"
+        target_user="{{.SWITCH_USER}}"
+        backup_root="/var/home/${target_user}/arch-switch-backups"
+
+        echo
+        echo 'This stages an in-place bootc switch to:'
+        echo "  ${image_ref}"
+        echo
+        echo 'It does not format the NVMe, recreate LUKS, change filesystem labels, or reboot.'
+        echo 'The booted Bluefin deployment remains available as the bootc rollback.'
+        read -r -p "Type 'stage arch' to continue: " confirmation
+        [ "$confirmation" = 'stage arch' ] || { echo Aborted.; exit 1; }
+
+        stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        backup_dir="${backup_root}/${stamp}"
+        install -d -m 0700 -o "$target_user" -g "$target_user" "$backup_dir"
+        bootc status --format=json > "${backup_dir}/bootc-status-before.json"
+        bootctl status > "${backup_dir}/bootctl-status-before.txt"
+        lsblk -o NAME,TYPE,SIZE,FSTYPE,LABEL,UUID,PARTUUID,MOUNTPOINTS > "${backup_dir}/lsblk-before.txt"
+        cp /proc/cmdline "${backup_dir}/kernel-cmdline-before.txt"
+        cryptsetup status root > "${backup_dir}/cryptsetup-root-before.txt"
+        printf 'image=%s\n' "$image_ref" > "${backup_dir}/image-target.txt"
+        chown -R "$target_user:$target_user" "$backup_dir"
+
+        echo "Saved recovery metadata under ${backup_dir}"
+        echo 'Staging the Arch deployment. This command does not reboot.'
+        bootc switch "$image_ref"
+        echo
+        echo 'Staged deployment:'
+        bootc status
+        echo 'Do not reboot until the staged deployment has also been tested in a VM.'
+        echo 'Bluefin remains the rollback deployment.'

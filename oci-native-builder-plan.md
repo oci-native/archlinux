@@ -250,8 +250,7 @@ PKGCHUNK bluetooth bluez bluez-utils blueman bluetui
 
 AURCHUNK hyprmod hyprwhspr-git wlogout
 
-COPY shared/ /shared/
-RUN bash /shared/initramfs.sh
+RUN dracut --force "$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)/initramfs.img"
 RUN bootc container lint --fatal-warnings
 ```
 

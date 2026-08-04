@@ -1,9 +1,5 @@
 ARG BASE_IMAGE=localhost/archlinux-bootc-base:latest
 
-FROM scratch AS context
-
-COPY shared/ /shared/
-
 FROM ${BASE_IMAGE}
 
 ARG USERNAME=bupd
@@ -171,8 +167,14 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/p
     rm -rf /tmp/yay-bin "/var/home/${USERNAME}/.cache" && \
     pacman -Scc --noconfirm
 
-RUN --mount=type=bind,from=context,source=/shared,target=/ctx \
-    install -Dm0755 /ctx/start-hyprland-lua.sh /usr/libexec/start-hyprland-lua && \
+RUN install -d /usr/libexec && \
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -euo pipefail' \
+        'config="${XDG_CONFIG_HOME:-${HOME}/.config}/hypr/hyprland.lua"' \
+        'exec /usr/bin/start-hyprland -- --config "${config}"' \
+        > /usr/libexec/start-hyprland-lua && \
+    chmod 0755 /usr/libexec/start-hyprland-lua && \
     printf '%s\n' \
         '[Desktop Entry]' \
         'Name=Hyprland' \
@@ -195,8 +197,20 @@ RUN install -d /usr/lib/NetworkManager/conf.d /usr/lib/tmpfiles.d && \
 # Keep the initramfs aligned with the final kernel, firmware, microcode, and
 # NVIDIA modules by running the same generic builder as the Bootcrew-style
 # base after the desktop package transaction.
-RUN --mount=type=bind,from=context,source=/shared,target=/ctx \
-    bash /ctx/initramfs.sh
+RUN install -d /usr/lib/dracut/dracut.conf.d && \
+    printf '%s\n' \
+        'systemdsystemconfdir=/etc/systemd/system' \
+        'systemdsystemunitdir=/usr/lib/systemd/system' \
+        > /usr/lib/dracut/dracut.conf.d/30-archlinux-bootc-module.conf && \
+    printf '%s\n' \
+        'reproducible=yes' \
+        'hostonly=no' \
+        'compress=zstd' \
+        'add_dracutmodules+=" ostree bootc crypt dm btrfs tpm2-tss "' \
+        > /usr/lib/dracut/dracut.conf.d/30-archlinux-bootc-container-build.conf && \
+    kernel_dir="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)" && \
+    test -n "$kernel_dir" && \
+    dracut --force "${kernel_dir}/initramfs.img"
 
 # Enable only the services required for the desktop, networking, clock, SSD
 # maintenance. Bootc owns the composefs and systemd-boot lifecycle; no

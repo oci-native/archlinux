@@ -1,149 +1,118 @@
-# Arch Linux bootc laptop image
+# Arch Linux bootc PC image
 
-This repository builds a rolling Arch Linux workstation image for the current
-Bluefin bootc host. It includes GNOME, Hyprland, Chromium, Firefox, and
-terminal/development utilities from the official Arch repositories. It keeps
-AUR use limited to explicit desktop exceptions and does not include downloaded
-application installers, Flatpak remotes, or user dotfiles.
+An Arch Linux workstation image for bootc hosts. It provides GNOME, Hyprland,
+current AMD/NVIDIA support, and a focused desktop/developer toolset.
 
-The base layout follows
-[`bootcrew/mono`](https://github.com/bootcrew/mono/tree/main/arch): a separate
-upstream bootc builder stage, pacman state under `/usr/lib/sysimage`, a generic
-dracut image, bootc's standard persistent-root layout, and composefs enabled in
-`/usr/lib/ostree/prepare-root.conf`. The desktop layer adds the workstation
-package set declared in `Containerfile.pc`.
+The image is built from `Containerfile.base` and `Containerfile.pc`, then
+rechunked with Chunkah into content-based OCI layers before it is published.
+The default registry target is `ghcr.io/oci-native/archlinux:latest`.
 
-The image tracks the current official Arch repositories on every build:
+## Quick start
 
-- `archlinux/archlinux:latest`
-- a full `pacman -Syu`
-- the latest upstream bootc release resolved by the build script
-
-Bootc is the only source-built component because Arch does not currently
-publish a bootc package. Its Git/Rust/build dependencies are removed in the
-same image layer.
-
-## Included desktop
-
-The graphical system is workstation-oriented:
-
-- GDM and the full GNOME desktop group
-- Hyprland, Hyprlock, Waybar, Rofi, Dunst, Wlogout, and their desktop portal
-- GNOME Console, Ghostty, Files, and Settings
-- Chromium and Firefox
-- NetworkManager with systemd-resolved DNS
-- PipeWire and WirePlumber
-- power-profiles-daemon
-- brightness, audio, Bluetooth UI, GPU monitor, wallpaper, icon theme, and Nerd
-  Font tools
-- Matugen for opt-in dynamic color generation
-- fastfetch, Git, Neovim, Vim, Stow, Zsh, and sudo
-
-`wlogout` is installed from AUR through `yay` as an explicit Hyprland desktop
-exception because it is not available from the enabled official Arch
-repositories checked for this image. The final image keeps `yay` installed for
-that exception. `awww` is included from the official repositories for Wayland
-wallpaper handling. `swww` is still not included; add it only if the image
-policy allows another AUR exception or an official package becomes available.
-
-The hardware/boot set is limited to what the current machine needs:
-
-- AMD microcode
-- the official `nvidia-open` driver for the RTX 3060
-- Realtek firmware for the onboard network controller
-- Linux, dracut, systemd-boot, bootc, OSTree, and skopeo
-- cryptsetup and Btrfs support in the initramfs
-- EFI/systemd-boot tools
-
-Except for the explicit AUR exceptions documented above, these packages come
-from the official Arch repositories.
-
-## Build
-
-For a local build on the current bootc host, use rootful Podman because its
-immutable `/usr` does not currently provide working `newuidmap`/`newgidmap`
-privileges for rootless Podman:
+Requirements: rootless Podman, [Task](https://taskfile.dev/), and sufficient
+local storage for an Arch desktop image. Confirm rootless Podman first:
 
 ```sh
-sudo ./scripts/build-laptop.sh --local
+podman info --format 'rootless={{.Host.Security.Rootless}}'
 ```
 
-The resulting tag is `localhost/archlinux-laptop:latest` in root's Podman
-storage. Inspect it with `sudo podman images`.
-
-Post-build validation is intentionally limited to the bootc/composefs boot
-path and the encrypted Btrfs initramfs required by this host. It does not
-enforce workstation package policy.
-
-The temporary handoff registry is `ttl.sh`, which needs no account or
-credentials:
+Create local registry configuration. Do not commit this file:
 
 ```sh
-sudo ./scripts/build-laptop.sh
+cp .env.example .env
 ```
 
-`ttl.sh` is ephemeral: an unqualified TTL such as `:latest` expires after one
-hour. The host tracks `ttl.sh/oci-native/archlinux:latest`; move the image to a
-durable registry before configuring long-term upgrades.
-
-## Encrypted Bluefin switch
-
-Do not repartition or run `bootc install to-existing-root` on the current
-machine. It already has the correct bootc disk foundation:
-
-- UEFI and systemd-boot
-- composefs/UKI deployment
-- an unlocked LUKS mapping at `/dev/mapper/root`
-- a Btrfs physical root
-- persistent state and home under `/var`
-
-An in-place `bootc switch` changes only the staged OS deployment. It does not
-format the NVMe, recreate LUKS, or change partition/filesystem labels. The
-current Bluefin deployment remains the rollback entry.
-
-Run the read-only preflight first:
+Build, rechunk, and validate the deployable image:
 
 ```sh
-sudo ./scripts/validate-bluefin-switch.sh
+task build
 ```
 
-After building and pushing, stage the requested tag:
+To publish, set `GHCR_USERNAME` and `GHCR_TOKEN` in `.env`. The token requires
+the GitHub `write:packages` scope:
 
 ```sh
-sudo ./scripts/stage-bluefin-to-arch.sh \
-  ttl.sh/oci-native/archlinux:latest
+task push
 ```
 
-The staging script deliberately does not use `--apply` and does not reboot. It
-saves recovery metadata under `/var/home/bupd/arch-switch-backups`, then shows
-the staged and rollback deployments. It passes
-`ttl.sh/oci-native/archlinux:latest` directly to `bootc switch`. It contains no
-custom ESP, boot-entry, or bootloader handling; bootc remains solely
-responsible for those operations.
+## Tasks
 
-Before the first reboot:
+| Task | Purpose |
+| --- | --- |
+| `task build-flat` | Build the base image and the flat PC image. |
+| `task rechunk` | Split the flat image into up to 96 content-based layers. |
+| `task validate` | Validate the bootc, composefs, and initramfs boot path. |
+| `task build` | Build, rechunk, and validate. |
+| `task push` | Build, rechunk, validate, and push to GHCR as `:latest`. |
+| `sudo task disk` | Create a bootable UEFI disk image. |
+| `sudo task switch-preflight` | Read-only safety checks for the current Bluefin host. |
+| `sudo task switch` | Confirm and stage the Arch deployment; it never reboots. |
 
-1. Confirm `bootc status` lists Arch as staged and Bluefin as rollback.
-2. Keep Secure Boot disabled unless the Arch kernel and bootloader are signed
-   with an enrolled key.
-3. Ensure the systemd-boot menu is visible so Bluefin can be selected if Arch
-   does not reach the LUKS prompt, a TTY, or GDM.
+Override the target repository when needed:
 
-The persistent user is `bupd` (UID/GID 1000), matching `/var/home/bupd`.
-Bootc preserves the deployed `/etc` account/password state during the switch;
-the public image itself contains no password hash and installs no custom
-first-boot or boot-loader helper service.
+```sh
+task push IMAGE_REPOSITORY=ghcr.io/example/archlinux
+```
 
-## TPM unlock for encrypted root
+The local outputs are:
 
-Bluefin's `ujust setup-luks-tpm-unlock` ultimately uses
-`systemd-cryptenroll` with PCR `7+14`. This image keeps the same TPM2 unlock
-policy without adding a custom wrapper: the initramfs includes dracut's
-`tpm2-tss` module and the TPM2 userspace required by it.
+- `localhost/archlinux-pc:flat` — the direct Containerfile result.
+- `localhost/archlinux-pc:latest` — the validated, rechunked deployment image.
 
-The LUKS header itself is host state, so enrolling the TPM token is a one-time
-live-system operation, not an image build step. After booting an image that
-contains the TPM initramfs support, run:
+## Image delivery
+
+Chunkah reads the Arch pacman database and produces stable, content-based OCI
+layers. The 96-layer value is a cap, not an exact target; the tool may emit
+fewer layers when it can pack components more efficiently.
+
+The final push uses OCI `zstd:chunked`. Chunkah keeps unchanged content in
+reusable layers; zstd:chunked lets compatible clients fetch changed ranges
+within changed layers. Override the cap with `CHUNKAH_MAX_LAYERS=...`.
+
+The project intentionally uses Chunkah rather than an RPM-only rechunker,
+because Chunkah supports pacman/ALPM images.
+
+## What is included
+
+- GNOME/GDM and Hyprland desktop sessions
+- Chromium, Firefox, terminals, editors, Git, and common development tools
+- NetworkManager, systemd-resolved, PipeWire, Bluetooth, and power profiles
+- AMD microcode, `nvidia-open`, and Realtek firmware
+- LUKS, Btrfs, dracut, systemd-boot, OSTree, and bootc support
+
+Packages come from official Arch repositories except documented AUR desktop
+exceptions. The image contains no dotfiles, credentials, Flatpak remotes, or
+curl/npm-installed applications.
+
+See [the architecture document](docs/laptop-bootc-architecture.md) for the
+full image policy and design.
+
+## Switching an existing Bluefin host
+
+This workflow is only for a host that is already a composefs/UKI bootc system
+with a LUKS-on-Btrfs root. It stages a new deployment; it does not repartition,
+format, recreate LUKS, or reboot.
+
+Run the read-only preflight:
+
+```sh
+sudo task switch-preflight
+```
+
+Then explicitly confirm the staged switch:
+
+```sh
+sudo task switch
+```
+
+Before rebooting, verify `bootc status` shows Arch as staged and Bluefin as the
+rollback deployment. Keep Secure Boot disabled until a signed Arch UKI path is
+available.
+
+## TPM unlock and VM testing
+
+TPM enrollment is host state, not image build state. After booting an image
+with TPM initramfs support, enroll a token while retaining a passphrase slot:
 
 ```sh
 sudo systemd-cryptenroll \
@@ -152,22 +121,11 @@ sudo systemd-cryptenroll \
   /dev/nvme0n1p2
 ```
 
-Keep at least one passphrase slot enrolled. The passphrase remains the fallback
-if TPM unlock is unavailable after firmware, Secure Boot policy, MOK, or TPM
-changes. Verify enrollment with:
+For separate UEFI/QEMU testing, create a disk image:
 
 ```sh
-sudo cryptsetup luksDump /dev/nvme0n1p2 | sed -n '/Tokens:/,/Digests:/p'
+sudo task disk
 ```
 
-To remove TPM auto-unlock:
-
-```sh
-sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/nvme0n1p2
-```
-
-## VM disk image
-
-`./scripts/generate-laptop-disk.sh` creates `bootable-laptop.img` for separate
-UEFI/QEMU testing. It is not a substitute for verifying the host-specific LUKS
-kernel arguments and NVIDIA path before switching the real machine.
+This does not replace testing the real host’s LUKS kernel arguments and GPU
+path before staging a switch.
