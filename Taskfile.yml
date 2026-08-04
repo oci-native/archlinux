@@ -15,6 +15,7 @@ vars:
   SWITCH_USER: '{{.SWITCH_USER | default .BOOTC_USER | default "bupd"}}'
   ROOT_MAPPER: '{{.ROOT_MAPPER | default "/dev/mapper/root"}}'
   MIN_FREE_GIB: '{{.MIN_FREE_GIB | default "15"}}'
+  PODMAN_BUILD_FLAGS: '{{.PODMAN_BUILD_FLAGS | default ""}}'
 
 tasks:
   default:
@@ -26,24 +27,46 @@ tasks:
     desc: Build, rechunk, and validate the PC bootc image
     cmds:
       - task: build-flat
+        vars: { PODMAN_BUILD_FLAGS: '{{.PODMAN_BUILD_FLAGS}}' }
       - task: rechunk
       - task: validate
 
-  build-flat:
-    desc: Build the base image and the flat PC OCI image
+  rebuild:
+    desc: Rebuild without cache, rechunk, and validate the PC bootc image
+    cmds:
+      - task: build
+        vars: { PODMAN_BUILD_FLAGS: '--no-cache' }
+
+  build-base:
+    desc: Build only the base bootc image
     cmds:
       - >-
-        podman build --pull=always --network=host
+        podman build {{.PODMAN_BUILD_FLAGS}} --pull=always --network=host
         --build-arg BOOTC_VERSION={{.BOOTC_VERSION}}
         -f Containerfile.base
         -t {{.BASE_IMAGE_TAG}}
         .
+
+  build-pc:
+    desc: Build only the flat PC OCI image from the existing base image
+    preconditions:
+      - sh: podman image exists {{.BASE_IMAGE_TAG}}
+        msg: Run `task build-base` before building the PC image.
+    cmds:
       - >-
-        podman build --network=host
+        podman build {{.PODMAN_BUILD_FLAGS}} --network=host
         --build-arg BASE_IMAGE={{.BASE_IMAGE_TAG}}
         -f Containerfile.pc
         -t {{.PC_FLAT_IMAGE_TAG}}
         .
+
+  build-flat:
+    desc: Build the base image and the flat PC OCI image
+    cmds:
+      - task: build-base
+        vars: { PODMAN_BUILD_FLAGS: '{{.PODMAN_BUILD_FLAGS}}' }
+      - task: build-pc
+        vars: { PODMAN_BUILD_FLAGS: '{{.PODMAN_BUILD_FLAGS}}' }
 
   rechunk:
     desc: Split the flat PC image into up to 96 content-based OCI layers
@@ -97,6 +120,17 @@ tasks:
     desc: Build, rechunk, validate, and push a zstd:chunked PC image to GHCR
     cmds:
       - task: build
+      - task: publish
+
+  rebuild-push:
+    desc: Rebuild from scratch, rechunk, validate, and push the PC image
+    cmds:
+      - task: rebuild
+      - task: publish
+
+  publish:
+    internal: true
+    cmds:
       - task: registry-login
       - podman tag {{.PC_IMAGE_TAG}} {{.IMAGE_REPOSITORY}}:latest
       - >-
