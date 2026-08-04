@@ -142,46 +142,12 @@ tasks:
     vars:
       PODMAN: '{{.PODMAN | default "podman"}}'
     cmds:
-      - |
-        set -euo pipefail
-        image_ref="{{.IMAGE_REPOSITORY}}"
-        first_part="${image_ref%%/*}"
-        if [ "$first_part" = "$image_ref" ]; then
-          host=docker.io
-        elif [[ "$first_part" == *.* || "$first_part" == *:* || "$first_part" = localhost ]]; then
-          host="$first_part"
-        else
-          host=docker.io
-        fi
+      - scripts/registry-login.sh '{{.IMAGE_REPOSITORY}}' {{.PODMAN}}
 
-        if [ "$host" = ttl.sh ]; then
-          exit 0
-        fi
-
-        case "$host" in
-          ghcr.io)
-            username="${GHCR_USERNAME:-}"
-            password="${GHCR_TOKEN:-}"
-            hint='Set GHCR_USERNAME and GHCR_TOKEN.'
-            ;;
-          docker.io | index.docker.io | registry-1.docker.io)
-            username="${DOCKERHUB_USERNAME:-}"
-            password="${DOCKERHUB_TOKEN:-}"
-            hint='Set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN.'
-            ;;
-          *)
-            username="${BOOTC_USERNAME:-}"
-            password="${BOOTC_PASSWORD:-}"
-            hint='Set BOOTC_USERNAME and BOOTC_PASSWORD.'
-            ;;
-        esac
-
-        if [ -z "$username" ] || [ -z "$password" ]; then
-          echo "ERROR: missing credentials for ${image_ref} (${host}). ${hint}" >&2
-          exit 1
-        fi
-
-        printf '%s\n' "$password" | {{.PODMAN}} login "$host" -u "$username" --password-stdin
+  test:
+    desc: Run the repository's regression tests
+    cmds:
+      - tests/registry-login.sh
 
   disk:
     desc: Create a bootable UEFI disk image (requires sudo)
