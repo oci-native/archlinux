@@ -28,25 +28,47 @@ Build, rechunk, and validate the deployable image:
 task build
 ```
 
-To publish, set `GHCR_USERNAME` and `GHCR_TOKEN` in `.env`. The token requires
-the GitHub `write:packages` scope:
+To rebuild every Containerfile without using cached layers, rechunk, validate,
+and publish the result, set `GHCR_USERNAME` and `GHCR_TOKEN` in `.env`, then
+run `rebuild-push`. The token requires the GitHub `write:packages` scope:
 
 ```sh
-task push
+task rebuild-push
 ```
 
 ## Tasks
 
 | Task | Purpose |
 | --- | --- |
-| `task build-flat` | Build the base image and the flat PC image. |
+| `task build-base` | Build only the base bootc image. |
+| `task build-pc` | Build only the flat PC image using the existing base image. |
+| `task build-flat` | Build the base image, then the flat PC image. |
 | `task rechunk` | Split the flat image into up to 96 content-based layers. |
 | `task validate` | Validate the bootc, composefs, and initramfs boot path. |
 | `task build` | Build, rechunk, and validate. |
+| `task rebuild` | Rebuild both Containerfiles without cache, rechunk, and validate. |
 | `task push` | Build, rechunk, validate, and push to GHCR as `:latest`. |
+| `task rebuild-push` | Rebuild from the ground up without cache, rechunk, validate, and push. |
 | `sudo task disk` | Create a bootable UEFI disk image. |
 | `sudo task switch-preflight` | Read-only safety checks for the current Bluefin host. |
 | `sudo task switch` | Confirm and stage the Arch deployment; it never reboots. |
+
+Choose the narrowest task for the change being tested. `build-base` stops after
+the shared base image, while `build-pc` rebuilds only the workstation layer and
+requires the local base image to exist. `build-flat` runs both stages in order.
+
+The two complete publishing paths are:
+
+```text
+task push:
+  base (cached) -> PC (cached) -> rechunk -> validate -> push
+
+task rebuild-push:
+  base (--no-cache) -> PC (--no-cache) -> rechunk -> validate -> push
+```
+
+`rebuild-push` does not delete Podman images or globally clear the build cache;
+it bypasses the cache for this build only.
 
 Override the target repository when needed:
 
