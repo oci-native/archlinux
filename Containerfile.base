@@ -1,7 +1,3 @@
-FROM scratch AS context
-
-COPY shared/ /shared/
-
 FROM docker.io/archlinux/archlinux:latest AS bootc-builder
 
 ARG BOOTC_VERSION=v1.16.6
@@ -90,14 +86,61 @@ RUN --mount=type=tmpfs,dst=/tmp \
 RUN chmod 4755 /usr/bin/newuidmap && \
     chmod 4755 /usr/bin/newgidmap
 
-RUN --mount=type=bind,from=context,source=/shared,target=/ctx \
-    bash /ctx/initramfs.sh
+RUN install -d /usr/lib/dracut/dracut.conf.d && \
+    printf '%s\n' \
+        'systemdsystemconfdir=/etc/systemd/system' \
+        'systemdsystemunitdir=/usr/lib/systemd/system' \
+        > /usr/lib/dracut/dracut.conf.d/30-archlinux-bootc-module.conf && \
+    printf '%s\n' \
+        'reproducible=yes' \
+        'hostonly=no' \
+        'compress=zstd' \
+        'add_dracutmodules+=" ostree bootc crypt dm btrfs tpm2-tss "' \
+        > /usr/lib/dracut/dracut.conf.d/30-archlinux-bootc-container-build.conf && \
+    kernel_dir="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)" && \
+    test -n "$kernel_dir" && \
+    dracut --force "${kernel_dir}/initramfs.img"
 
-RUN --mount=type=bind,from=context,source=/shared,target=/ctx \
-    sed -i 's|^HOME=.*|HOME=/var/home|' /etc/default/useradd && \
+RUN sed -i 's|^HOME=.*|HOME=/var/home|' /etc/default/useradd && \
     printf 'uninitialized\n' > /etc/machine-id && \
     systemctl mask systemd-firstboot.service && \
-    bash /ctx/bootc-rootfs.sh
+    rm -rf \
+        /boot \
+        /home \
+        /root \
+        /tmp \
+        /usr/local \
+        /srv \
+        /opt \
+        /mnt \
+        /var \
+        /usr/lib/sysimage/log \
+        /usr/lib/sysimage/cache/pacman/pkg && \
+    find /run -mindepth 1 -maxdepth 1 ! -name .containerenv -exec rm -rf -- {} + && \
+    install -d /sysroot /boot /run /usr/lib/ostree /var && \
+    install -d -m 1777 /tmp && \
+    ln -sT sysroot/ostree /ostree && \
+    ln -sT var/roothome /root && \
+    ln -sT var/srv /srv && \
+    ln -sT var/opt /opt && \
+    ln -sT var/mnt /mnt && \
+    ln -sT var/home /home && \
+    ln -sT ../var/usrlocal /usr/local && \
+    printf '%s\n' \
+        'd /var/opt 0755 root root -' \
+        'd /var/home 0755 root root -' \
+        'd /var/srv 0755 root root -' \
+        'd /var/mnt 0755 root root -' \
+        'd /var/usrlocal 0755 root root -' \
+        'd /var/roothome 0700 root root -' \
+        'd /run/media 0755 root root -' \
+        > /usr/lib/tmpfiles.d/bootc-base-dirs.conf && \
+    printf '%s\n' \
+        '[composefs]' \
+        'enabled = yes' \
+        '[sysroot]' \
+        'readonly = true' \
+        > /usr/lib/ostree/prepare-root.conf
 
 LABEL containers.bootc=1
 LABEL org.opencontainers.image.source="https://github.com/oci-native/archlinux"

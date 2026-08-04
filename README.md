@@ -44,6 +44,9 @@ task push
 | `task validate` | Validate the bootc, composefs, and initramfs boot path. |
 | `task build` | Build, rechunk, and validate. |
 | `task push` | Build, rechunk, validate, and push to GHCR as `:latest`. |
+| `sudo task disk` | Create a bootable UEFI disk image. |
+| `sudo task switch-preflight` | Read-only safety checks for the current Bluefin host. |
+| `sudo task switch` | Confirm and stage the Arch deployment; it never reboots. |
 
 Override the target repository when needed:
 
@@ -93,14 +96,13 @@ format, recreate LUKS, or reboot.
 Run the read-only preflight:
 
 ```sh
-sudo ./scripts/validate-bluefin-switch.sh
+sudo task switch-preflight
 ```
 
 Then explicitly confirm the staged switch:
 
 ```sh
-sudo ./scripts/stage-bluefin-to-arch.sh \
-  ghcr.io/oci-native/archlinux:latest
+sudo task switch
 ```
 
 Before rebooting, verify `bootc status` shows Arch as staged and Bluefin as the
@@ -122,7 +124,7 @@ sudo systemd-cryptenroll \
 For separate UEFI/QEMU testing, create a disk image:
 
 ```sh
-./scripts/generate-laptop-disk.sh
+sudo task disk
 ```
 
 This does not replace testing the real host’s LUKS kernel arguments and GPU
