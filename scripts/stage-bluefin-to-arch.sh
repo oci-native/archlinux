@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE_REF="${1:-ttl.sh/oci-native/archlinux:latest}"
+IMAGE_REF="${1:-ghcr.io/oci-native/archlinux:latest}"
 TARGET_USER="${BOOTC_USER:-bupd}"
 BACKUP_ROOT="/var/home/${TARGET_USER}/arch-switch-backups"
 

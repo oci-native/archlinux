@@ -28,7 +28,7 @@ if [ "$#" -gt 0 ]; then
     ARG_USERNAME="$2"
     ARG_PASSWORD="$3"
 else
-    IMAGE_REFS_STR="${BOOTC_IMAGE_REFS:-${BOOTC_LAPTOP_IMAGE_REF:-ttl.sh/oci-native/archlinux}}"
+    IMAGE_REFS_STR="${BOOTC_IMAGE_REFS:-${BOOTC_PC_IMAGE_REF:-ghcr.io/oci-native/archlinux}}"
     read -r -a IMAGE_REFS <<< "$IMAGE_REFS_STR"
 fi
 

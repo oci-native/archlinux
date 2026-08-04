@@ -1,0 +1,104 @@
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  BOOTC_VERSION: '{{.BOOTC_VERSION | default "v1.16.6"}}'
+  IMAGE_REPOSITORY: '{{.IMAGE_REPOSITORY | default .BOOTC_PC_IMAGE_REF | default "ghcr.io/oci-native/archlinux"}}'
+  BASE_IMAGE_TAG: 'localhost/archlinux-bootc-base:latest'
+  PC_FLAT_IMAGE_TAG: 'localhost/archlinux-pc:flat'
+  PC_IMAGE_TAG: 'localhost/archlinux-pc:latest'
+  CHUNKAH_IMAGE: 'quay.io/coreos/chunkah@sha256:ff8b8b466a942ec6000445d4001fc661e2fc5a952ad9ee29b4de9ab09d1d1708'
+  CHUNKAH_MAX_LAYERS: '{{.CHUNKAH_MAX_LAYERS | default "96"}}'
+
+tasks:
+  default:
+    desc: Build, rechunk, and validate the PC bootc image
+    cmds:
+      - task: build
+
+  build:
+    desc: Build, rechunk, and validate the PC bootc image
+    cmds:
+      - task: build-flat
+      - task: rechunk
+      - task: validate
+
+  build-flat:
+    desc: Build the base image and the flat PC OCI image
+    cmds:
+      - >-
+        podman build --pull=always --network=host
+        --build-arg BOOTC_VERSION={{.BOOTC_VERSION}}
+        -f Containerfile.base
+        -t {{.BASE_IMAGE_TAG}}
+        .
+      - >-
+        podman build --network=host
+        --build-arg BASE_IMAGE={{.BASE_IMAGE_TAG}}
+        -f Containerfile.pc
+        -t {{.PC_FLAT_IMAGE_TAG}}
+        .
+
+  rechunk:
+    desc: Split the flat PC image into up to 96 content-based OCI layers
+    preconditions:
+      - sh: podman image exists {{.PC_FLAT_IMAGE_TAG}}
+        msg: Run `task build-flat` before rechunking.
+    cmds:
+      - >-
+        CHUNKAH_CONFIG_STR="$(podman inspect {{.PC_FLAT_IMAGE_TAG}})"
+        podman run --rm
+        --mount=type=image,src={{.PC_FLAT_IMAGE_TAG}},dst=/chunkah
+        -e CHUNKAH_CONFIG_STR
+        {{.CHUNKAH_IMAGE}}
+        build --max-layers {{.CHUNKAH_MAX_LAYERS}} -t {{.PC_IMAGE_TAG}}
+        | podman load
+
+  validate:
+    desc: Validate the bootc, composefs, and initramfs boot path
+    cmds:
+      - >-
+        test "$(podman image inspect --format '{{"{{"}} index .Config.Labels "containers.bootc" {{"}}"}}' {{.PC_IMAGE_TAG}})" = "1"
+      - |
+        podman run --rm {{.PC_IMAGE_TAG}} bash -euo pipefail -c '
+          bootc container lint --fatal-warnings
+          grep -Eq "^[[:space:]]*enabled[[:space:]]*=[[:space:]]*yes$" /usr/lib/ostree/prepare-root.conf
+          test -x /usr/lib/bootc/initramfs-setup
+          test -f /usr/lib/systemd/system/bootc-root-setup.service
+
+          kernel_dir="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          initrd="${kernel_dir}/initramfs.img"
+          test -s "${kernel_dir}/vmlinuz"
+          test -s "$initrd"
+
+          lsinitrd -m "$initrd" > /tmp/initrd-modules.txt
+          lsinitrd "$initrd" > /tmp/initrd-contents.txt
+          grep -Eq "^[[:space:]]*bootc[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -Eq "^[[:space:]]*crypt[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -Eq "^[[:space:]]*btrfs[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -Eq "^[[:space:]]*tpm2-tss[[:space:]]*$" /tmp/initrd-modules.txt
+          grep -q "usr/lib/bootc/initramfs-setup" /tmp/initrd-contents.txt
+          grep -q "bootc-root-setup.service" /tmp/initrd-contents.txt
+          grep -q "usr/bin/systemd-cryptsetup" /tmp/initrd-contents.txt
+          grep -q "usr/bin/tpm2" /tmp/initrd-contents.txt
+          grep -q "libtss2-esys.so" /tmp/initrd-contents.txt
+          grep -q "cryptsetup/libcryptsetup-token-systemd-tpm2.so" /tmp/initrd-contents.txt
+          grep -q "dm-crypt.ko" /tmp/initrd-contents.txt
+        '
+      - podman images {{.PC_IMAGE_TAG}}
+
+  push:
+    desc: Build, rechunk, validate, and push a zstd:chunked PC image to GHCR
+    cmds:
+      - task: build
+      - >-
+        bash -euo pipefail -c 'source ./scripts/registry-auth.sh;
+        registry_auth check "{{.IMAGE_REPOSITORY}}"'
+      - >-
+        bash -euo pipefail -c 'source ./scripts/registry-auth.sh;
+        registry_auth podman-login "{{.IMAGE_REPOSITORY}}"'
+      - podman tag {{.PC_IMAGE_TAG}} {{.IMAGE_REPOSITORY}}:latest
+      - >-
+        podman push --format oci --compression-format zstd:chunked
+        --force-compression {{.IMAGE_REPOSITORY}}:latest
