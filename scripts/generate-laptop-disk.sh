@@ -28,12 +28,7 @@ if [ "$#" -gt 0 ]; then
     ARG_USERNAME="$2"
     ARG_PASSWORD="$3"
 else
-    IMAGE_REFS_STR="${BOOTC_IMAGE_REFS:-${BOOTC_LAPTOP_IMAGE_REF:-}}"
-    if [ -z "$IMAGE_REFS_STR" ]; then
-        echo "Usage: $0 [image-ref] [username] [password]"
-        echo "Alternatively set BOOTC_IMAGE_REFS in ${ENV_FILE}"
-        exit 1
-    fi
+    IMAGE_REFS_STR="${BOOTC_IMAGE_REFS:-${BOOTC_LAPTOP_IMAGE_REF:-ttl.sh/oci-native/archlinux}}"
     read -r -a IMAGE_REFS <<< "$IMAGE_REFS_STR"
 fi
 

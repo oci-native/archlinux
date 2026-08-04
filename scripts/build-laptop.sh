@@ -33,12 +33,7 @@ elif [ "$#" -gt 0 ]; then
     ARG_USERNAME="$2"
     ARG_PASSWORD="$3"
 else
-    IMAGE_REFS_STR="${BOOTC_IMAGE_REFS:-${BOOTC_LAPTOP_IMAGE_REF:-}}"
-    if [ -z "$IMAGE_REFS_STR" ]; then
-        echo "Usage: $0 [image-ref] [username] [password]"
-        echo "Alternatively set BOOTC_IMAGE_REFS in ${ENV_FILE}"
-        exit 1
-    fi
+    IMAGE_REFS_STR="${BOOTC_IMAGE_REFS:-${BOOTC_LAPTOP_IMAGE_REF:-ttl.sh/oci-native/archlinux}}"
     read -r -a IMAGE_REFS <<< "$IMAGE_REFS_STR"
 fi
 
@@ -54,7 +49,7 @@ github_latest_release_tag() {
     curl "${curl_args[@]}" "https://api.github.com/repos/${repo}/releases/latest" | jq -r '.tag_name'
 }
 
-BOOTC_VERSION="${BOOTC_VERSION:-$(github_latest_release_tag bootc-dev/bootc)}"
+BOOTC_VERSION="${BOOTC_VERSION:-v1.16.6}"
 
 if [ -z "$BOOTC_VERSION" ] || [ "$BOOTC_VERSION" = "null" ]; then
     echo "ERROR: failed to resolve latest bootc release"
@@ -62,19 +57,11 @@ if [ -z "$BOOTC_VERSION" ] || [ "$BOOTC_VERSION" = "null" ]; then
 fi
 
 default_podman_cmd() {
-    if [ "$PUSH_IMAGE" -eq 0 ]; then
-        local runroot="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/containers"
-        printf 'podman --root %s --runroot %s\n' "$HOME/.local/share/containers/storage" "$runroot"
-    else
-        printf 'sudo podman\n'
-    fi
+    local runroot="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/containers"
+    printf 'podman --root %s --runroot %s\n' "$HOME/.local/share/containers/storage" "$runroot"
 }
 
 read -r -a PODMAN <<< "${BOOTC_PODMAN_CMD:-$(default_podman_cmd)}"
-
-if [ "${PODMAN[0]}" = "sudo" ]; then
-    sudo -v
-fi
 
 if [ "$PUSH_IMAGE" -eq 1 ]; then
     for image_ref in "${IMAGE_REFS[@]}"; do
@@ -105,6 +92,36 @@ echo "## Building laptop image"
     -t "$FINAL_IMAGE_TAG" \
     "$REPO_DIR"
 
+echo ""
+echo "## Validating composefs laptop image"
+[ "$("${PODMAN[@]}" image inspect --format '{{ index .Config.Labels "containers.bootc" }}' "$FINAL_IMAGE_TAG")" = "1" ]
+"${PODMAN[@]}" run --rm "$FINAL_IMAGE_TAG" bash -euo pipefail -c '
+    bootc container lint --fatal-warnings
+    grep -Eq "^[[:space:]]*enabled[[:space:]]*=[[:space:]]*yes$" /usr/lib/ostree/prepare-root.conf
+    test -x /usr/lib/bootc/initramfs-setup
+    test -f /usr/lib/systemd/system/bootc-root-setup.service
+
+    kernel_dir="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+    initrd="${kernel_dir}/initramfs.img"
+    test -s "${kernel_dir}/vmlinuz"
+    test -s "$initrd"
+
+    lsinitrd -m "$initrd" > /tmp/initrd-modules.txt
+    lsinitrd "$initrd" > /tmp/initrd-contents.txt
+    grep -Eq "^[[:space:]]*bootc[[:space:]]*$" /tmp/initrd-modules.txt
+    grep -Eq "^[[:space:]]*crypt[[:space:]]*$" /tmp/initrd-modules.txt
+    grep -Eq "^[[:space:]]*btrfs[[:space:]]*$" /tmp/initrd-modules.txt
+    grep -Eq "^[[:space:]]*tpm2-tss[[:space:]]*$" /tmp/initrd-modules.txt
+    grep -q "usr/lib/bootc/initramfs-setup" /tmp/initrd-contents.txt
+    grep -q "bootc-root-setup.service" /tmp/initrd-contents.txt
+    grep -q "usr/bin/systemd-cryptsetup" /tmp/initrd-contents.txt
+    grep -q "usr/bin/tpm2" /tmp/initrd-contents.txt
+    grep -q "libtss2-esys.so" /tmp/initrd-contents.txt
+    grep -q "cryptsetup/libcryptsetup-token-systemd-tpm2.so" /tmp/initrd-contents.txt
+    grep -q "dm-crypt.ko" /tmp/initrd-contents.txt
+'
+"${PODMAN[@]}" images "$FINAL_IMAGE_TAG"
+
 if [ "$PUSH_IMAGE" -eq 1 ]; then
     for image_ref in "${IMAGE_REFS[@]}"; do
         target_image_tag="${image_ref}:latest"
@@ -112,6 +129,7 @@ if [ "$PUSH_IMAGE" -eq 1 ]; then
         echo "## Pushing to $target_image_tag"
         "${PODMAN[@]}" tag "$FINAL_IMAGE_TAG" "$target_image_tag"
         "${PODMAN[@]}" push "$target_image_tag"
+        echo "## Published tag: ${target_image_tag}"
     done
 
     echo ""
