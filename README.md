@@ -29,12 +29,16 @@ task build
 ```
 
 To rebuild every Containerfile without using cached layers, rechunk, validate,
-and publish the result, set `GHCR_USERNAME` and `GHCR_TOKEN` in `.env`, then
-run `rebuild-push`. The token requires the GitHub `write:packages` scope:
+and publish the result, log Podman in to GHCR, then run `rebuild-push`. The
+token requires the GitHub `write:packages` scope:
 
 ```sh
+printf '%s\n' "$GHCR_TOKEN" | podman login ghcr.io --username "$GHCR_USERNAME" --password-stdin
 task rebuild-push
 ```
+
+The publish tasks reuse credentials already stored by Podman. For noninteractive
+use, `GHCR_USERNAME` and `GHCR_TOKEN` may instead be set in `.env`.
 
 ## Tasks
 
