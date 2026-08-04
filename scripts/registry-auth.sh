@@ -17,6 +17,9 @@ registry_credential_hint() {
     local host="$1"
 
     case "$host" in
+        ttl.sh)
+            echo "ttl.sh is anonymous and does not use registry credentials."
+            ;;
         ghcr.io)
             echo "Set GHCR_USERNAME and GHCR_TOKEN, or pass username/password arguments."
             ;;
@@ -87,6 +90,16 @@ registry_auth() {
     local password
 
     host="$(registry_host "$image_ref")"
+
+    # ttl.sh is intentionally an anonymous, ephemeral OCI registry.
+    if [ "$host" = "ttl.sh" ]; then
+        case "$action" in
+            check | podman-login | oras-login)
+                return 0
+                ;;
+        esac
+    fi
+
     mapfile -t credentials < <(registry_credentials "$host" "$username_override" "$password_override")
     username="${credentials[0]:-}"
     password="${credentials[1]:-}"
