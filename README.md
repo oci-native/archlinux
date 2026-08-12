@@ -47,7 +47,7 @@ task rebuild-push
 | `task validate` | Validate the bootc, composefs, and initramfs boot path. |
 | `task build` | Build, rechunk, and validate. |
 | `task rebuild` | Rebuild both Containerfiles without cache, rechunk, and validate. |
-| `task push` | Build, rechunk, validate, and push to the configured image reference. |
+| `task push` | Build, rechunk, validate, and push the base and PC images to their configured references. |
 | `task rebuild-push` | Rebuild from the ground up without cache, rechunk, validate, and push. |
 | `sudo task disk` | Create a bootable UEFI disk image. |
 | `sudo task switch-preflight` | Read-only safety checks for the current Bluefin host. |
@@ -70,10 +70,16 @@ task rebuild-push:
 `rebuild-push` does not delete Podman images or globally clear the build cache;
 it bypasses the cache for this build only.
 
-Override the target repository when needed:
+`task push` publishes two images: the PC image to `IMAGE_REPOSITORY:IMAGE_TAG`
+and the shared base image to `BASE_IMAGE_REPOSITORY:IMAGE_TAG`, which defaults
+to `IMAGE_REPOSITORY` with a `-base` suffix (for example,
+`ghcr.io/oci-native/archlinux-base:latest`).
+
+Override the target repositories when needed:
 
 ```sh
 task push IMAGE_REPOSITORY=ghcr.io/example/archlinux
+task push IMAGE_REPOSITORY=ghcr.io/example/archlinux BASE_IMAGE_REPOSITORY=ghcr.io/example/archlinux-base
 ```
 
 To publish the laptop tag to ttl.sh (no registry login required), run:
