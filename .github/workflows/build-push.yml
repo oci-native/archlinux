@@ -1,0 +1,48 @@
+name: Build and push bootc image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Containerfile.base
+      - Containerfile.pc
+      - Taskfile.yml
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Tag to publish (IMAGE_TAG)
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-push-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      # The desktop image (GNOME/Hyprland, browsers, dev tools, NVIDIA) plus
+      # its flat and rechunked copies can exceed the ~14GB free by default.
+      # Reclaim space from toolchains this pipeline never uses.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af || true
+          df -h /
+
+      - uses: arduino/setup-task@v2
+
+      - name: Build, rechunk, validate, and push
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+        run: task push
