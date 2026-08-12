@@ -105,7 +105,7 @@ because Chunkah supports pacman/ALPM images.
 - GNOME/GDM and Hyprland desktop sessions
 - Chromium, Firefox, terminals, editors, Git, and common development tools
 - NetworkManager, systemd-resolved, PipeWire, Bluetooth, and power profiles
-- AMD microcode, `nvidia-open`, and Realtek firmware
+- AMD and Intel microcode, `nvidia-open`, and Intel, MediaTek, and Realtek firmware
 - LUKS, Btrfs, dracut, systemd-boot, OSTree, and bootc support
 
 Packages come from official Arch repositories except documented AUR desktop

@@ -17,6 +17,7 @@ RUN if grep -q '^\#\[multilib\]' /etc/pacman.conf; then \
 RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/pacman \
     pacman -Syu --needed --noconfirm \
     amd-ucode \
+    intel-ucode \
     chromium \
     firefox \
     go-task \
@@ -28,6 +29,7 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/p
     hyprlock \
     xdg-desktop-portal-hyprland \
     waybar \
+    nwg-displays \
     gparted \
     rofi \
     rofi-calc \
@@ -76,7 +78,10 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/p
     gnome-shell \
     gnome \
     linux \
+    linux-firmware-intel \
+    linux-firmware-mediatek \
     linux-firmware-realtek \
+    wireless-regdb \
     zsh \
     ghostty \
     hyprpwcenter \
@@ -96,6 +101,7 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/p
     lib32-nvidia-utils \
     libva-nvidia-driver \
     networkmanager \
+    networkmanager-dmenu \
     nvidia-open \
     pipewire \
     pipewire-alsa \
@@ -193,6 +199,16 @@ RUN install -d /usr/lib/NetworkManager/conf.d /usr/lib/tmpfiles.d && \
         > /usr/lib/NetworkManager/conf.d/20-systemd-resolved.conf && \
     printf 'L! /etc/resolv.conf - - - - /run/systemd/resolve/stub-resolv.conf\n' \
         > /usr/lib/tmpfiles.d/resolv-conf.conf
+
+# This laptop runs closed-lid as a docked workstation: closing the lid must
+# never suspend, lock, or power off, on battery, on AC, or docked.
+RUN install -d /usr/lib/systemd/logind.conf.d && \
+    printf '%s\n' \
+        '[Login]' \
+        'HandleLidSwitch=ignore' \
+        'HandleLidSwitchDocked=ignore' \
+        'HandleLidSwitchExternalPower=ignore' \
+        > /usr/lib/systemd/logind.conf.d/10-lid-ignore.conf
 
 # Keep the initramfs aligned with the final kernel, firmware, microcode, and
 # NVIDIA modules by running the same generic builder as the Bootcrew-style
