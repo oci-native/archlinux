@@ -5,6 +5,7 @@ dotenv: ['.env']
 vars:
   BOOTC_VERSION: '{{.BOOTC_VERSION | default "v1.16.6"}}'
   IMAGE_REPOSITORY: '{{.IMAGE_REPOSITORY | default .BOOTC_PC_IMAGE_REF | default "ghcr.io/oci-native/archlinux"}}'
+  IMAGE_TAG: '{{.IMAGE_TAG | default "latest"}}'
   BASE_IMAGE_TAG: 'localhost/archlinux-bootc-base:latest'
   PC_FLAT_IMAGE_TAG: 'localhost/archlinux-pc:flat'
   PC_IMAGE_TAG: 'localhost/archlinux-pc:latest'
@@ -117,7 +118,7 @@ tasks:
       - podman images {{.PC_IMAGE_TAG}}
 
   push:
-    desc: Build, rechunk, validate, and push a zstd:chunked PC image to GHCR
+    desc: Build, rechunk, validate, and push a gzip-compressed PC image
     cmds:
       - task: build
       - task: publish
@@ -132,10 +133,10 @@ tasks:
     internal: true
     cmds:
       - task: registry-login
-      - podman tag {{.PC_IMAGE_TAG}} {{.IMAGE_REPOSITORY}}:latest
+      - podman tag {{.PC_IMAGE_TAG}} {{.IMAGE_REPOSITORY}}:{{.IMAGE_TAG}}
       - >-
-        podman push --format oci --compression-format zstd:chunked
-        --force-compression {{.IMAGE_REPOSITORY}}:latest
+        podman push --format oci --compression-format gzip
+        --force-compression {{.IMAGE_REPOSITORY}}:{{.IMAGE_TAG}}
 
   registry-login:
     internal: true
@@ -197,7 +198,7 @@ tasks:
         -v /etc/containers:/etc/containers
         -v /dev:/dev
         -v "$(pwd):/data"
-        {{.IMAGE_REPOSITORY}}:latest
+        {{.IMAGE_REPOSITORY}}:{{.IMAGE_TAG}}
         bootc install to-disk --composefs-backend
         --via-loopback /data/{{.DISK_IMAGE}}
         --filesystem ext4 --wipe --bootloader systemd
@@ -294,7 +295,7 @@ tasks:
       - task: switch-preflight
       - |
         set -euo pipefail
-        image_ref="{{.IMAGE_REPOSITORY}}:latest"
+        image_ref="{{.IMAGE_REPOSITORY}}:{{.IMAGE_TAG}}"
         target_user="{{.SWITCH_USER}}"
         backup_root="/var/home/${target_user}/arch-switch-backups"
 
