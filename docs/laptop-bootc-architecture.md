@@ -43,6 +43,25 @@ flowchart TD
   an internal kernel-command-line crate rename.
 - Secure Boot must remain disabled until a signed Arch UKI workflow is added.
 
+## Host prerequisites
+
+- `/etc/containers/storage.conf` must explicitly set `driver = "overlay"`:
+  ```toml
+  [storage]
+  driver = "overlay"
+  ```
+  Without it, a fresh `bootc switch` can fail with:
+  ```
+  ERRO[0000] User-selected graph driver "overlay" overwritten by graph
+  driver "vfs" from database - delete libpod local files
+  ("/run/bootc/storage") to resolve.
+  ```
+  `/run/bootc/storage` is bootc's own ephemeral staging store for the image
+  it is about to switch to, kept on tmpfs. Deleting that directory alone does
+  not fix it, since the driver decision is re-derived on the next invocation;
+  the host-wide storage driver must be pinned explicitly at the `/etc`
+  level, which overrides every other `storage.conf` on the system.
+
 ## Image policy
 
 - Official Arch packages by default for the operating system and desktop.
