@@ -19,6 +19,13 @@ RUN --mount=type=cache,dst=/root/.cargo/registry \
         rust
 
 WORKDIR /tmp/bootc
+# Upstream's release profile enables thin LTO and full debug info. The final
+# bootc link can exceed the memory available to rootless Podman and be killed
+# by the host OOM killer. These binaries are stripped below, so omit both and
+# serialize rustc jobs to keep peak build memory bounded.
+ENV CARGO_BUILD_JOBS=1 \
+    CARGO_PROFILE_RELEASE_DEBUG=0 \
+    CARGO_PROFILE_RELEASE_LTO=false
 RUN git clone --branch "${BOOTC_VERSION}" --depth 1 \
         https://github.com/bootc-dev/bootc.git . && \
     make bin install-all DESTDIR=/output
