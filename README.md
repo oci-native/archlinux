@@ -47,7 +47,7 @@ task rebuild-push
 | `task validate` | Validate the bootc, composefs, and initramfs boot path. |
 | `task build` | Build, rechunk, and validate. |
 | `task rebuild` | Rebuild both Containerfiles without cache, rechunk, and validate. |
-| `task push` | Build, rechunk, validate, and push to GHCR as `:latest`. |
+| `task push` | Build, rechunk, validate, and push to the configured image reference. |
 | `task rebuild-push` | Rebuild from the ground up without cache, rechunk, validate, and push. |
 | `sudo task disk` | Create a bootable UEFI disk image. |
 | `sudo task switch-preflight` | Read-only safety checks for the current Bluefin host. |
@@ -76,6 +76,12 @@ Override the target repository when needed:
 task push IMAGE_REPOSITORY=ghcr.io/example/archlinux
 ```
 
+To publish the laptop tag to ttl.sh (no registry login required), run:
+
+```sh
+task push IMAGE_REPOSITORY=ttl.sh/oci-native/archlinux IMAGE_TAG=laptop
+```
+
 The local outputs are:
 
 - `localhost/archlinux-pc:flat` — the direct Containerfile result.
@@ -87,9 +93,9 @@ Chunkah reads the Arch pacman database and produces stable, content-based OCI
 layers. The 96-layer value is a cap, not an exact target; the tool may emit
 fewer layers when it can pack components more efficiently.
 
-The final push uses OCI `zstd:chunked`. Chunkah keeps unchanged content in
-reusable layers; zstd:chunked lets compatible clients fetch changed ranges
-within changed layers. Override the cap with `CHUNKAH_MAX_LAYERS=...`.
+The final push uses standard OCI gzip layers for compatibility with bootc's
+composefs ingestion path. Chunkah still keeps unchanged content in reusable,
+content-based layers. Override the cap with `CHUNKAH_MAX_LAYERS=...`.
 
 The project intentionally uses Chunkah rather than an RPM-only rechunker,
 because Chunkah supports pacman/ALPM images.
