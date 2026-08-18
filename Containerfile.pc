@@ -93,6 +93,8 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/p
     git-delta \
     less \
     podman-docker \
+    qemu-user-static \
+    qemu-user-static-binfmt \
     neovim \
     vim \
     stow \
@@ -261,6 +263,8 @@ RUN install -d /usr/lib/dracut/dracut.conf.d && \
 # Enable only the services required for the desktop, networking, clock, SSD
 # maintenance. Bootc owns the composefs and systemd-boot lifecycle; no
 # image-specific boot helper or ESP copying service is installed.
+# systemd-binfmt is a static sysinit service and starts automatically when the
+# QEMU binfmt rules installed above are present, so it must not be enabled here.
 RUN systemctl enable \
     NetworkManager \
     NetworkManager-wait-online \
