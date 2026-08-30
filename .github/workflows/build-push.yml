@@ -56,6 +56,7 @@ jobs:
           IMAGE_REPOSITORY: ghcr.io/oci-native/archlinux
         run: |
           CACHE_REPO="$(echo "${IMAGE_REPOSITORY}-buildcache" | tr '[:upper:]' '[:lower:]')"
+          build_start=$(date +%s)
           n=1
           until task push PODMAN_BUILD_FLAGS="--layers --cache-from ${CACHE_REPO} --cache-to ${CACHE_REPO}"; do
             if [ "$n" -ge 3 ]; then
@@ -66,6 +67,7 @@ jobs:
             sleep $((n*15))
             n=$((n+1))
           done
+          echo "BUILD_SECONDS=$(( $(date +%s) - build_start ))" >> "$GITHUB_ENV"
 
       - name: Save Buildah cache mounts
         if: always()
@@ -73,3 +75,17 @@ jobs:
         with:
           path: /var/tmp/buildah-cache-*
           key: buildah-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+
+      - name: Build telemetry
+        if: always()
+        run: |
+          IMAGE="localhost/archlinux-pc:latest"
+          SIZE=$(podman image inspect --format '{{.Size}}' "$IMAGE" 2>/dev/null || echo 0)
+          LAYERS=$(podman image inspect --format '{{len .RootFS.Layers}}' "$IMAGE" 2>/dev/null || echo 0)
+          {
+            echo "### Build telemetry"
+            echo ""
+            echo "| build time | image size | layers |"
+            echo "|---|---|---|"
+            echo "| ${BUILD_SECONDS:-?}s | $(numfmt --to=iec "${SIZE}" 2>/dev/null || echo "${SIZE}") | ${LAYERS} |"
+          } >> "$GITHUB_STEP_SUMMARY"
