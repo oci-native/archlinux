@@ -301,7 +301,8 @@ RUN systemctl enable \
     systemd-oomd.socket \
     fstrim.timer \
     cloudflared-tunnel \
-    tailscaled
+    tailscaled \
+    sshd
 
 RUN ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime && \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
