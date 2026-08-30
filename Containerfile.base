@@ -1,6 +1,6 @@
 FROM docker.io/archlinux/archlinux:latest AS bootc-builder
 
-ARG BOOTC_VERSION=v1.16.6
+ARG BOOTC_VERSION=v1.16.10
 
 # Arch does not yet package bootc. Build one pinned upstream release in an
 # isolated stage so no compiler, source tree, or build-only account reaches
