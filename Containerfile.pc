@@ -261,6 +261,29 @@ RUN install -d /usr/lib/dracut/dracut.conf.d && \
     test -n "$kernel_dir" && \
     dracut --force "${kernel_dir}/initramfs.img"
 
+# Cloudflare Tunnel is opt-in per machine: the unit only starts when
+# /etc/cloudflared/tunnel.env (TUNNEL_TOKEN=...) exists, so hosts that never
+# provision a token are unaffected. Tokens are provisioned locally with
+# scripts/setup-cloudflared-tunnel.sh; no secret material lives in the image.
+RUN printf '%s\n' \
+        '[Unit]' \
+        'Description=Cloudflare Tunnel (opt-in via /etc/cloudflared/tunnel.env)' \
+        'ConditionPathExists=/etc/cloudflared/tunnel.env' \
+        'After=network-online.target' \
+        'Wants=network-online.target' \
+        '' \
+        '[Service]' \
+        'TimeoutStartSec=0' \
+        'Type=notify' \
+        'EnvironmentFile=/etc/cloudflared/tunnel.env' \
+        'ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run' \
+        'Restart=on-failure' \
+        'RestartSec=5s' \
+        '' \
+        '[Install]' \
+        'WantedBy=multi-user.target' \
+        > /usr/lib/systemd/system/cloudflared-tunnel.service
+
 # Enable only the services required for the desktop, networking, clock, SSD
 # maintenance. Bootc owns the composefs and systemd-boot lifecycle; no
 # image-specific boot helper or ESP copying service is installed.
@@ -275,7 +298,8 @@ RUN systemctl enable \
     systemd-resolved \
     systemd-timesyncd \
     systemd-oomd.socket \
-    fstrim.timer
+    fstrim.timer \
+    cloudflared-tunnel
 
 RUN ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime && \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
