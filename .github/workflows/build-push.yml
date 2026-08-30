@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: build-push-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   push:
@@ -45,4 +45,14 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
-        run: task push
+        run: |
+          n=1
+          until task push; do
+            if [ "$n" -ge 3 ]; then
+              echo "task push failed after $n attempts" >&2
+              exit 1
+            fi
+            echo "task push attempt $n failed, retrying in $((n*15))s" >&2
+            sleep $((n*15))
+            n=$((n+1))
+          done
