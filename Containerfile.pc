@@ -119,8 +119,7 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/p
     tailscale \
     wireplumber \
     xdg-utils \
-    xdg-desktop-portal-gnome \
-    && pacman -Scc --noconfirm
+    xdg-desktop-portal-gnome
 
 RUN printf 'g %s %s\nu %s %s:%s "Local user" /var/home/%s /bin/bash\nm %s wheel\nm %s video\nm %s input\nm %s audio\nm %s storage\n' \
         "${USERNAME}" "${USER_GID}" \
@@ -175,8 +174,7 @@ RUN --mount=type=tmpfs,dst=/tmp --mount=type=cache,dst=/usr/lib/sysimage/cache/p
             hyprmod \
             wlogout' && \
     rm -f /etc/sudoers.d/zz-aur-build && \
-    rm -rf /tmp/yay-bin "/var/home/${USERNAME}/.cache" && \
-    pacman -Scc --noconfirm
+    rm -rf /tmp/yay-bin "/var/home/${USERNAME}/.cache"
 
 RUN install -d /usr/libexec && \
     printf '%s\n' \
