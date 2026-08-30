@@ -3,7 +3,7 @@ version: '3'
 dotenv: ['.env']
 
 vars:
-  BOOTC_VERSION: '{{.BOOTC_VERSION | default "v1.16.6"}}'
+  BOOTC_VERSION: '{{.BOOTC_VERSION | default "v1.16.10"}}'
   IMAGE_REPOSITORY: '{{.IMAGE_REPOSITORY | default .BOOTC_PC_IMAGE_REF | default "ghcr.io/oci-native/archlinux"}}'
   IMAGE_TAG: '{{.IMAGE_TAG | default "latest"}}'
   BASE_IMAGE_REPOSITORY: '{{.BASE_IMAGE_REPOSITORY | default (printf "%s-base" .IMAGE_REPOSITORY)}}'
