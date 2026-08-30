@@ -121,12 +121,14 @@ tasks:
   push:
     desc: Build, rechunk, validate, and push a gzip-compressed PC image
     cmds:
+      - task: registry-login
       - task: build
       - task: publish
 
   rebuild-push:
     desc: Rebuild from scratch, rechunk, validate, and push the PC image
     cmds:
+      - task: registry-login
       - task: rebuild
       - task: publish
 
