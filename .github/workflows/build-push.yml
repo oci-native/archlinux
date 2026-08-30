@@ -45,9 +45,11 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+          IMAGE_REPOSITORY: ghcr.io/oci-native/archlinux
         run: |
+          CACHE_REPO="$(echo "${IMAGE_REPOSITORY}-buildcache" | tr '[:upper:]' '[:lower:]')"
           n=1
-          until task push; do
+          until task push PODMAN_BUILD_FLAGS="--layers --cache-from ${CACHE_REPO} --cache-to ${CACHE_REPO}"; do
             if [ "$n" -ge 3 ]; then
               echo "task push failed after $n attempts" >&2
               exit 1
