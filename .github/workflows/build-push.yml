@@ -40,6 +40,14 @@ jobs:
 
       - uses: arduino/setup-task@v2
 
+      - name: Restore Buildah cache mounts
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/tmp/buildah-cache-*
+          key: buildah-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            buildah-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Build, rechunk, validate, and push
         env:
           GHCR_USERNAME: ${{ github.actor }}
@@ -58,3 +66,10 @@ jobs:
             sleep $((n*15))
             n=$((n+1))
           done
+
+      - name: Save Buildah cache mounts
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /var/tmp/buildah-cache-*
+          key: buildah-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
