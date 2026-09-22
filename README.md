@@ -116,6 +116,7 @@ because Chunkah supports pacman/ALPM images.
 - Chromium, Firefox, terminals, editors, Git, and common development tools
 - NetworkManager, systemd-resolved, PipeWire, Bluetooth, and power profiles
 - AMD and Intel microcode, `nvidia-open`, and Intel, MediaTek, and Realtek firmware
+- CUDA toolkit, shipped at `/usr/lib/opt/cuda` and linked to `/opt/cuda` on boot
 - LUKS, Btrfs, dracut, systemd-boot, OSTree, and bootc support
 
 Packages come from official Arch repositories except documented AUR desktop
