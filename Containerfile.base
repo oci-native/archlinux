@@ -97,6 +97,18 @@ RUN --mount=type=tmpfs,dst=/tmp \
 RUN chmod 4755 /usr/bin/newuidmap && \
     chmod 4755 /usr/bin/newgidmap
 
+# bootc 1.17's runtime-deps lint requires a chcon executable in the image. Arch
+# builds coreutils without SELinux, so chcon is not shipped. bootc itself only
+# runs chcon on hosts where SELinux is enabled, which a build without the
+# selinux feature never reports, so this stub is never executed. It mirrors what
+# coreutils' chcon does when SELinux support is compiled out: fail with an error.
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'echo "chcon: SELinux is not supported on this system" >&2' \
+        'exit 1' \
+        > /usr/bin/chcon && \
+    chmod 0755 /usr/bin/chcon
+
 RUN install -d /usr/lib/dracut/dracut.conf.d && \
     printf '%s\n' \
         'systemdsystemconfdir=/etc/systemd/system' \
