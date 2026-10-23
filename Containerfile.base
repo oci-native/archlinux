@@ -1,6 +1,6 @@
 FROM docker.io/archlinux/archlinux:latest AS bootc-builder
 
-ARG BOOTC_VERSION=v1.16.10
+ARG BOOTC_VERSION=v1.17.1
 
 # Arch does not yet package bootc. Build one pinned upstream release in an
 # isolated stage so no compiler, source tree, or build-only account reaches
@@ -26,9 +26,14 @@ WORKDIR /tmp/bootc
 ENV CARGO_BUILD_JOBS=1 \
     CARGO_PROFILE_RELEASE_DEBUG=0 \
     CARGO_PROFILE_RELEASE_LTO=false
+# bootc 1.17 turned SELinux into a default cargo feature that links libselinux,
+# which Arch does not package. Build with upstream's documented feature set for
+# non-SELinux distributions; bootc then treats SELinux as disabled on the host,
+# which is already the case on Arch.
 RUN git clone --branch "${BOOTC_VERSION}" --depth 1 \
         https://github.com/bootc-dev/bootc.git . && \
-    make bin install-all DESTDIR=/output
+    make bin install-all DESTDIR=/output \
+        CARGO_OPTIONS='--no-default-features --features "install-to-disk pre-6.15"'
 
 # install-all also emits bootc's development integration-test executable and
 # keeps full Rust debug sections. Neither belongs in the deployed OS image.

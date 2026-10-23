@@ -3,14 +3,14 @@ version: '3'
 dotenv: ['.env']
 
 vars:
-  BOOTC_VERSION: '{{.BOOTC_VERSION | default "v1.16.10"}}'
+  BOOTC_VERSION: '{{.BOOTC_VERSION | default "v1.17.1"}}'
   IMAGE_REPOSITORY: '{{.IMAGE_REPOSITORY | default .BOOTC_PC_IMAGE_REF | default "ghcr.io/oci-native/archlinux"}}'
   IMAGE_TAG: '{{.IMAGE_TAG | default "latest"}}'
   BASE_IMAGE_REPOSITORY: '{{.BASE_IMAGE_REPOSITORY | default (printf "%s-base" .IMAGE_REPOSITORY)}}'
   BASE_IMAGE_TAG: 'localhost/archlinux-bootc-base:latest'
   PC_FLAT_IMAGE_TAG: 'localhost/archlinux-pc:flat'
   PC_IMAGE_TAG: 'localhost/archlinux-pc:latest'
-  CHUNKAH_IMAGE: 'quay.io/coreos/chunkah@sha256:ff8b8b466a942ec6000445d4001fc661e2fc5a952ad9ee29b4de9ab09d1d1708'
+  CHUNKAH_IMAGE: 'quay.io/coreos/chunkah@sha256:71e593421c5de7dcc7c8c5c50e98d3bac572055a76f399f61a491d123c20a523'
   CHUNKAH_MAX_LAYERS: '{{.CHUNKAH_MAX_LAYERS | default "96"}}'
   DISK_IMAGE: '{{.DISK_IMAGE | default "bootable-pc.img"}}'
   DISK_SIZE: '{{.DISK_SIZE | default .BOOTC_DISK_SIZE | default "32G"}}'
