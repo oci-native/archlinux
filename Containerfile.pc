@@ -156,20 +156,26 @@ RUN printf 'g %s %s\nu %s %s:%s "Local user" /var/home/%s /bin/bash\nm %s wheel\
     printf "%%wheel ALL=(ALL:ALL) ALL\n" > /etc/sudoers.d/wheel && \
     chmod 0440 /etc/sudoers.d/wheel
 
-RUN install -d /etc/skel/.config/ghostty /etc/skel/.config/kitty && \
+RUN install -d /etc/skel/.config/ghostty /etc/skel/.config/kitty /etc/skel/.config/herdr && \
     printf 'font-family = JetBrainsMono Nerd Font Mono\n' \
         > /etc/skel/.config/ghostty/config && \
     printf 'font_family JetBrainsMono Nerd Font Mono\n' \
         > /etc/skel/.config/kitty/kitty.conf && \
+    printf 'onboarding = false\n\n[keys]\nprefix = ["esc", "ctrl+b"]\ngoto = "prefix+e"\n' \
+        > /etc/skel/.config/herdr/config.toml && \
     install -d -m 0700 -o "${USERNAME}" -g "${USERNAME}" \
         "/var/home/${USERNAME}/.config/ghostty" \
-        "/var/home/${USERNAME}/.config/kitty" && \
+        "/var/home/${USERNAME}/.config/kitty" \
+        "/var/home/${USERNAME}/.config/herdr" && \
     install -m 0644 -o "${USERNAME}" -g "${USERNAME}" \
         /etc/skel/.config/ghostty/config \
         "/var/home/${USERNAME}/.config/ghostty/config" && \
     install -m 0644 -o "${USERNAME}" -g "${USERNAME}" \
         /etc/skel/.config/kitty/kitty.conf \
-        "/var/home/${USERNAME}/.config/kitty/kitty.conf"
+        "/var/home/${USERNAME}/.config/kitty/kitty.conf" && \
+    install -m 0644 -o "${USERNAME}" -g "${USERNAME}" \
+        /etc/skel/.config/herdr/config.toml \
+        "/var/home/${USERNAME}/.config/herdr/config.toml"
 
 # Explicit AUR exceptions. The final image keeps yay available for updating
 # those exceptions through a bootc usr-overlay, but package state remains owned
